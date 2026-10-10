@@ -124,7 +124,7 @@ The **global dashboard of all hosts is not part of this repository** and is not 
 | [![Global dashboard – overview](images/global_dashboard_1.png)](images/global_dashboard_1.png) | [![Global dashboard – all hosts](images/global_dashboard_2.png)](images/global_dashboard_2.png) | [![Global dashboard – reboot and installs](images/global_dashboard_3.png)](images/global_dashboard_3.png) |
 
 - **Overview**: hosts, compliance, hosts with pending / security / critical updates, reboot required, failed installs, no data, pending updates totals, hosts not updated for 45+ days, automatic updates off, update source down, average uptime and time since update; hosts by OS, update compliance, honeycomb of hosts by pending security updates; 1 year trends; patch management problems
-- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, automatic updates (0 disabled … 3 patch management, colored), update source, last check, check and install result, check script version, config in effect with its source (✎ Zabbix host macro, ▤ `zbx-patch.conf`, ○ default), next window, excluded updates
+- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, automatic updates (0 disabled … 3 patch management, colored), update source, last check, check result, check script version, config in effect with its source (✎ Zabbix host macro, ▤ `zbx-patch.conf`, ○ default), excluded updates
 - **Reboot and installs**: longest uptime with the reboot reason, longest without installed updates, results of the last install runs
 
 ### Host dashboard pages
