@@ -2385,7 +2385,7 @@ zabbix_export:
           description: 'Host setting from Zabbix (overrides EXCLUDE of zbx-patch.conf): updates that are not installed, comma separated (Linux: packages, Windows: KB or a part of the title), % = wildcard (kernel%), none = nothing excluded. Empty = zbx-patch.conf.'
         - macro: '{$PATCH.CONF.REBOOT}'
           value: ''
-          description: 'Host setting from Zabbix (overrides REBOOT of zbx-patch.conf): yes = reboot after updates when needed, no = only report it. Empty = zbx-patch.conf.'
+          description: 'Host setting from Zabbix (overrides REBOOT of zbx-patch.conf): true = reboot after updates when needed, false = only report it. Empty = zbx-patch.conf.'
         - macro: '{$PATCH.CONF.WINDOW}'
           value: ''
           description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of zbx-patch.conf): <day> <HH:MM>-<HH:MM>, comma separated; day 1-7 = Mon-Sun (1-7 = every day, * is not allowed by the agent), 1-5, 2.3 = 2nd Wednesday; any = any time. Empty = zbx-patch.conf.'

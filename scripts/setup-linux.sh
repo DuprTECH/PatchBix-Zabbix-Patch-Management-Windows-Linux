@@ -10,7 +10,7 @@
 #                UserParameter patch.config (host macros {$PATCH.CONF.*}), first check. Running it again updates an installed server and keeps the settings.
 #   2 check    = run the update check now (pending updates -> Zabbix) and show the patch settings
 #   3 update   = install updates now in the maintenance window,
-#                without EXCLUDE packages, reboot when needed and REBOOT="yes", result to Zabbix
+#                without EXCLUDE packages, reboot when needed and REBOOT="true", result to Zabbix
 #   4 force    = like 3, also outside the maintenance window
 #
 # AUTO_UPDATE="false" in zbx-patch.conf (default) = the checker only checks; "true" = it installs the
@@ -134,7 +134,7 @@ EOF
             ask "Maintenance window" "$win"; win=$REPLY
             ask "Automatic updates in the maintenance window (true/false)" "$auto"; auto=$REPLY
             ask "Excluded packages, comma separated, wildcards allowed" "$excl"; excl=$REPLY
-            ask "Reboot after updates when needed (yes/no)" "$reboot"; reboot=$REPLY
+            ask "Reboot after updates when needed (true/false)" "$reboot"; reboot=$REPLY
             ;;
     esac
     # KEY="value" when set, otherwise the commented example
@@ -164,8 +164,8 @@ $(setting AUTO_UPDATE "$auto" true)
 # Updates that are not installed, separated by commas: package names, wildcards allowed (default: none)
 $(setting EXCLUDE "$excl" "kernel*, docker-ce")
 
-# Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix; default: yes)
-$(setting REBOOT "$reboot" no)
+# Reboot after updates when needed: true / false (false = the reboot is only reported to Zabbix; default: true)
+$(setting REBOOT "$reboot" false)
 EOF
     chmod 644 "$CONF"
     echo "Saved $CONF"

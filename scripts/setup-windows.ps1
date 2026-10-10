@@ -8,7 +8,7 @@
 #                UserParameter patch.config (host macros {$PATCH.CONF.*}), first check. Running it again updates an installed server and keeps the settings.
 #   2 check    = run the update check now (pending updates -> Zabbix) and show the patch settings
 #   3 update   = install updates now (security, critical, rollups, definitions,
-#                updates) in the maintenance window, without EXCLUDE, reboot when needed and REBOOT="yes", result to Zabbix
+#                updates) in the maintenance window, without EXCLUDE, reboot when needed and REBOOT="true", result to Zabbix
 #   4 force    = like 3, also outside the maintenance window
 #
 # AUTO_UPDATE="false" in zbx-patch.conf (default) = the checker only checks; "true" = it installs the
@@ -148,7 +148,7 @@ function Install-Monitor {
         $win  = Ask 'Maintenance window' $win
         $auto = Ask 'Automatic updates in the maintenance window (true/false)' $auto
         $ex   = Ask 'Excluded updates, comma separated: KB number or a part of the title' $ex
-        $rb   = Ask 'Reboot after updates when needed (yes/no)' $rb
+        $rb   = Ask 'Reboot after updates when needed (true/false)' $rb
     }
     # KEY="value" when set, otherwise the commented example
     function Setting([string]$Key, [string]$Value, [string]$Example) {
@@ -179,8 +179,8 @@ $(Setting 'AUTO_UPDATE' $auto 'true')
 # Updates that are not installed, separated by commas: KB number or a part of the title (default: none)
 $(Setting 'EXCLUDE' $ex 'KB5034441, Preview')
 #
-# Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix; default: yes)
-$(Setting 'REBOOT' $rb 'no')
+# Reboot after updates when needed: true / false (false = the reboot is only reported to Zabbix; default: true)
+$(Setting 'REBOOT' $rb 'false')
 "@ | Set-Content -Path $PatchConf -Encoding ASCII
     Write-Host "Saved $PatchConf"
     # Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} -> zbx-patch-from-zbx-host-macro.cache),

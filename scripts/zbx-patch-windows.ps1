@@ -49,7 +49,7 @@
       AUTO_UPDATE="false"                       true = this script installs the updates itself in the
                                                 maintenance window (-AutoUpdate task), false = check only
       EXCLUDE="KB5034441, Preview"              updates that are not installed (KB number or a part of the title)
-      REBOOT="yes"                              reboot after updates when needed (no = report only)
+      REBOOT="true"                              reboot after updates when needed (false = report only)
     They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
     patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with -ShowConfig.
 
@@ -60,7 +60,7 @@
 .PARAMETER Update
     Install the updates now (Windows Update: security, critical, update rollups, definitions, updates;
     without EXCLUDE), only in the maintenance window (with -Force also outside), send the result to
-    Zabbix (patch.install.*), reboot when needed and REBOOT="yes", then check.
+    Zabbix (patch.install.*), reboot when needed and REBOOT="true", then check.
 
 .PARAMETER AutoUpdate
     For the scheduled task (every 15 min): with AUTO_UPDATE="true" and an open maintenance window
@@ -111,7 +111,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11.3'
+$ScriptVersion = '26.10.11.4'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -212,7 +212,7 @@ $configParts = @()
 foreach ($s in @(
         @('MAINTENANCE_WINDOW', 'window', $(if ($maintWindow) { $maintWindow } else { 'any time' })),
         @('AUTO_UPDATE', 'auto update', $(if ($autoInstall) { 'true' } else { 'false' })),
-        @('REBOOT', 'reboot', $(if ($rebootAllowed) { 'yes' } else { 'no' })),
+        @('REBOOT', 'reboot', $(if ($rebootAllowed) { 'true' } else { 'false' })),
         @('EXCLUDE', 'exclude', $(if ($excludeText) { $excludeText } else { '-' })))) {
     if ($confMacro.Contains($s[0])) { $configParts += "$($s[1]): $($s[2]) (macro)" }
     elseif ($confFile.Contains($s[0])) { $configParts += "$($s[1]): $($s[2])" }
@@ -302,9 +302,9 @@ function Set-MacroConfig([string]$Values) {
         $keys += 'EXCLUDE'; $lines += "EXCLUDE=`"$e`""
     }
     if ($r) {
-        if ($r -match '^(yes|true|1|on)$') { $r = 'yes' }
-        elseif ($r -match '^(no|false|0|off)$') { $r = 'no' }
-        else { return "ERROR: invalid {`$PATCH.CONF.REBOOT} '$r' (yes / no)" }
+        if ($r -match '^(yes|true|1|on)$') { $r = 'true' }
+        elseif ($r -match '^(no|false|0|off)$') { $r = 'false' }
+        else { return "ERROR: invalid {`$PATCH.CONF.REBOOT} '$r' (true / false)" }
         $keys += 'REBOOT'; $lines += "REBOOT=`"$r`""
     }
     $content = @(
@@ -512,7 +512,7 @@ function Install-Updates {
         Write-Host 'Rebooting in 2 minutes (cancel: shutdown /a).'
         return 'reboot'
     }
-    if ($needReboot) { Write-Warning "A reboot is required, but REBOOT=`"no`" in $PatchConfig" }
+    if ($needReboot) { Write-Warning "A reboot is required, but REBOOT=`"false`" in $PatchConfig" }
     return 'done'
 }
 if ($Update) {

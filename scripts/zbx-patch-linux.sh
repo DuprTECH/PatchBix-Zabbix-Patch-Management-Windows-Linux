@@ -33,7 +33,7 @@
 #   AUTO_UPDATE="false"                    true = this script installs the updates itself in the
 #                                          maintenance window (--auto-update from cron), false = check only
 #   EXCLUDE="kernel*, docker-ce"           packages that are not updated (wildcards allowed)
-#   REBOOT="yes"                           reboot after updates when needed (no = report only)
+#   REBOOT="true"                           reboot after updates when needed (false = report only)
 # They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
 # patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with --show-config.
 # patch.autoupdate (0 disabled, 1 OS security only, 2 OS all, 3 patch management, 4 both) and
@@ -52,7 +52,7 @@
 #                   exclusions, reboot, auto update) and exit - nothing is checked or sent
 #   --update        install the updates now (apt / dnf / yum, without EXCLUDE), only in the
 #                   maintenance window (with --force also outside), send the result to Zabbix
-#                   (patch.install.*), reboot when needed and REBOOT="yes", then check
+#                   (patch.install.*), reboot when needed and REBOOT="true", then check
 #   --auto-update   for cron (every 15 min): with AUTO_UPDATE="true" and an open maintenance
 #                   window does --update once per window, otherwise exits right away
 #                   (log: /var/log/zbx-patch-update.log via cron)
@@ -74,7 +74,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.11.3"
+SCRIPT_VERSION="26.10.11.4"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -190,7 +190,7 @@ conf_add() {
 }
 conf_add MAINTENANCE_WINDOW window "${MAINTENANCE_WINDOW:-any time}"
 conf_add AUTO_UPDATE "auto update" "$( [ "$AUTO_UPDATE" -eq 1 ] && echo true || echo false)"
-conf_add REBOOT reboot "$( [ "$REBOOT_ALLOWED" -eq 1 ] && echo yes || echo no)"
+conf_add REBOOT reboot "$( [ "$REBOOT_ALLOWED" -eq 1 ] && echo true || echo false)"
 conf_add EXCLUDE exclude "${EXCLUDE:--}"
 
 # Exclusions: comma separated package names, wildcards allowed
@@ -320,9 +320,9 @@ zabbix_config() {
     fi
     if [ -n "$r" ]; then
         case "${r,,}" in
-            yes|true|1|on)  r=yes ;;
-            no|false|0|off) r=no ;;
-            *) echo "ERROR: invalid {\$PATCH.CONF.REBOOT} '$r' (yes / no)"; return ;;
+            yes|true|1|on)  r=true ;;
+            no|false|0|off) r=false ;;
+            *) echo "ERROR: invalid {\$PATCH.CONF.REBOOT} '$r' (true / false)"; return ;;
         esac
         keys+=(REBOOT); lines+=("REBOOT=\"$r\"")
     fi
@@ -527,7 +527,7 @@ do_update() {
         exit 0
     fi
     if [ "$rebootfail" -eq 1 ]; then echo "ERROR: the reboot failed (shutdown -r), reboot the host by hand" >&2
-    elif [ "$need" -eq 1 ] && [ "$rc" -eq 0 ]; then echo "WARNING: a reboot is required, but REBOOT=\"no\" in $PATCH_CONF" >&2; fi
+    elif [ "$need" -eq 1 ] && [ "$rc" -eq 0 ]; then echo "WARNING: a reboot is required, but REBOOT=\"false\" in $PATCH_CONF" >&2; fi
     return "$rc"
 }
 if [ "$MODE" = update ]; then
