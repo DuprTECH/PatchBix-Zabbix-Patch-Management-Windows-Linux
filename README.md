@@ -94,7 +94,7 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Install run: time, age, status, result, count, failed, list | `patch.install.timestamp`, `.age`, `.status`, `.result`, `.count`, `.failed`, `.list` | install job, Ansible | install job, Ansible |
 | Maintenance window / next window | `patch.maintenance.window`, `patch.maintenance.next` | `zbx-patch.conf` | `zbx-patch.conf` |
 | Auto update by the check script | `patch.autoupdate.config` | `AUTO_UPDATE` in `zbx-patch.conf` | `AUTO_UPDATE` in `zbx-patch.conf` |
-| Config in effect with its source | `patch.config.override` | `✎ window: 1-5 03:00-05:00, ▤ auto update: false, ▤ reboot: yes, ○ exclude: -` | the same |
+| Config – the settings that are set, `(macro)` = from the host macro | `patch.config.override` | `window: 1-5 03:00-05:00 (macro), auto update: true`; empty = nothing set | the same |
 | Host macros delivered by the agent | `patch.config[…]` (agent item) | `OK, written / unchanged: …` or `ERROR: …` | the same |
 | Excluded updates (config) / pending excluded | `patch.exclude`, `patch.updates.excluded` | KB or a part of the title | package names (wildcards) |
 | Reboot allowed | `patch.reboot.allowed` | `zbx-patch.conf` | `zbx-patch.conf` |
@@ -124,7 +124,7 @@ The **global dashboard of all hosts is not part of this repository** and is not 
 | [![Global dashboard – overview](images/global_dashboard_1.png)](images/global_dashboard_1.png) | [![Global dashboard – all hosts](images/global_dashboard_2.png)](images/global_dashboard_2.png) | [![Global dashboard – reboot and installs](images/global_dashboard_3.png)](images/global_dashboard_3.png) |
 
 - **Overview**: hosts, compliance, hosts with pending / security / critical updates, reboot required, failed installs, no data, pending updates totals, hosts not updated for 45+ days, automatic updates off, update source down, average uptime and time since update; hosts by OS, update compliance, honeycomb of hosts by pending security updates; 1 year trends; patch management problems
-- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, automatic updates (0 disabled … 3 patch management, colored), update source, last check, check result, check script version, config in effect with its source (✎ Zabbix host macro, ▤ `zbx-patch.conf`, ○ default), excluded updates
+- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, automatic updates (0 disabled … 3 patch management, colored), update source, last check, check result, check script version, config (the settings that are set, `(macro)` = from the host macro), excluded updates
 - **Reboot and installs**: longest uptime with the reboot reason, longest without installed updates, results of the last install runs
 
 ### Host dashboard pages
@@ -133,7 +133,7 @@ The template contains the dashboard **Patch management**, shown for every host w
 
 | Page | Widgets |
 |------|---------|
-| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, automatic updates, automatic updates detail, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match; **Config** – the settings in effect with their source (✎ Zabbix host macro, ▤ `zbx-patch.conf`, ○ default) and the result of the agent item for the host macros |
+| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, automatic updates, automatic updates detail, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match; **Config** – the settings that are set (`(macro)` = from the host macro, empty = nothing set) and the result of the agent item for the host macros |
 | **Categories and severity** | Pie charts of pending updates by category and by severity, stacked graphs of both (90 days) |
 | **Installs and history** | Last install run, status, installed / failed count, last update installed, last reboot, check script version; installed / failed updates per run and time since update / reboot (1 year); history of install runs, installed updates, OS version / kernel and check results |
 
@@ -208,7 +208,7 @@ Creates the scheduled tasks *Zabbix patch check* (also after a reboot) and *Zabb
 sudo bash setup-linux.sh
 sudo MODE=update bash setup-linux.sh          # without the menu
 sudo INTERVAL_HOURS=4 bash setup-linux.sh     # check every 4 hours
-curl -fsSL https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/setup-linux.sh | sudo bash   # no terminal: 1 monitor, settings kept / defaults
+curl -fsSL https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/setup-linux.sh | sudo bash   # no terminal: 1 monitor, settings kept / not set
 ```
 Creates `/etc/cron.d/zbx-patch-linux` (check, check after a reboot, auto update).
 
@@ -242,7 +242,7 @@ REBOOT="yes"
 - **Automatic updates** (`AUTO_UPDATE="true"`): the check script is also started every 15 minutes with `--auto-update` / `-AutoUpdate` (cron / task *Zabbix patch auto update*). Outside the window (or with `false`) it exits right away; in an open window it installs the updates once per window (Linux apt / dnf / yum, Windows Update: security, critical, update rollups, definitions, updates), without `EXCLUDE`, sends the result to the `patch.install.*` items, reboots when needed and `REBOOT="yes"` and checks again after the reboot. Log: `/var/log/zbx-patch-update.log`, `C:\ProgramData\zbx-patch\update.log`.
 - **Install now by hand**: `zbx-patch-linux.sh --update` / `zbx-patch-windows.ps1 -Update` (only in the window, with `--force` / `-Force` also outside).
 - Your **install job** reads the settings with `zbx-patch-linux.sh --show-config` / `zbx-patch-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_next`, `exclude`, `reboot_allowed` and `auto_update`.
-- The **setup scripts** (choice 1 monitor) write the file every time: they show the values already in the file and keep them, or ask for new ones; missing settings get the defaults (window **every night 03:00–05:00**, `AUTO_UPDATE="false"`, `REBOOT="yes"`), so running them again updates an installed host. Or just edit the file – the next run uses the new values – or set the [host macros](#settings-from-zabbix-host-macros) in Zabbix.
+- **Nothing is set after the installation**: the setup scripts and the Ansible playbooks write `zbx-patch.conf` with the descriptions and the settings **commented out** – the host only reports (no automatic updates). A setting that is commented out is not set and its default applies: any time, `AUTO_UPDATE="false"`, nothing excluded, `REBOOT="yes"`. The setup scripts (choice 1 monitor) show the values already in the file and keep them, or ask for new ones (Enter = keep, `-` = not set, `any` = any time), so running them again updates an installed host. Or just edit the file – the next run uses the new values – or set the [host macros](#settings-from-zabbix-host-macros) in Zabbix.
 
 ### Settings from Zabbix (host macros)
 
@@ -259,7 +259,7 @@ How it works:
 
 1. The agent item *Patch - Settings from host macros (agent)* (active, every 10 min) has the macros in its key – the Zabbix server puts their values of the host into the key, so the agent gets them.
 2. The `UserParameter` `patch.config` runs the check script with `--zabbix-config` / `-ZabbixConfig`: it validates the values and writes the set (non empty) ones to **`zbx-patch-from-zbx-host-macro.cache`** next to `zbx-patch.conf` – only when they changed. **`zbx-patch.conf` is never changed from Zabbix**; an invalid value writes nothing (the item shows `ERROR: …` and the trigger *Patch settings in the host macros are invalid* fires).
-3. The check script (cron / Task Scheduler) reads `zbx-patch.conf` and then the `.cache` file – **a key from the macros wins**, an empty macro leaves `zbx-patch.conf` in effect. The item *Patch - Config (in effect, with source)* (`patch.config.override`) and the **Config** column / tile of the dashboards show every setting with its source, for example `✎ window: 1-5 03:00-05:00, ▤ auto update: false, ▤ reboot: yes, ○ exclude: -` – ✎ = Zabbix host macro (server), ▤ = `zbx-patch.conf` (config from the setup), ○ = set nowhere, the default applies. The check script sends `[S]` / `[C]` / `[D]`, the preprocessing of the item replaces them with the symbols (Unicode BMP characters, they work also with a MySQL database in `utf8`).
+3. The check script (cron / Task Scheduler) reads `zbx-patch.conf` and then the `.cache` file – **a key from the macros wins**, an empty macro leaves `zbx-patch.conf` in effect. The item *Patch - Config* (`patch.config.override`) and the **Config** column / tile of the dashboards show only the settings that are set – in `zbx-patch.conf` or in the host macros, `(macro)` marks a value from the macro, for example `window: 1-5 03:00-05:00 (macro), auto update: true`. Empty = nothing set, the defaults apply.
 
 The setup scripts and the Ansible playbooks install the `UserParameter` with `zbx-patch-linux.sh --install-agent-config` / `zbx-patch-windows.ps1 -InstallAgentConfig`: a file `zbx-patch-userparameter.conf` in the agent `Include` folder (the main agent config gets an `Include` line only when it has none), the `.cache` file writable by the agent (Linux `root:zabbix 0664`), and a restart of the agent – only when something changed; when the agent doesn't start afterwards, the changes are undone. Without the `UserParameter` the agent item is *not supported* and `zbx-patch.conf` alone applies.
 

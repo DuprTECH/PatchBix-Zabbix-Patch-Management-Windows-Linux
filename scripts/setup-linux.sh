@@ -27,7 +27,6 @@
 (
 MODE="${MODE:-}"                  # monitor | check | update | force, empty = menu
 INTERVAL_HOURS="${INTERVAL_HOURS:-12}"
-DEFAULT_WINDOW="* 03:00-05:00"    # maintenance window of a new zbx-patch.conf: every night, never during the day
 
 CHECK=/usr/local/bin/zbx-patch-linux.sh
 CRON=/etc/cron.d/zbx-patch-linux
@@ -108,56 +107,65 @@ $minute $hours * * * root $CHECK >/dev/null 2>&1
 EOF
     chmod 644 "$CRON"
     echo "Cron $CRON: check $minute $hours * * * and after a reboot, auto update every 15 min"
-    # Patch settings: the values already in the file are kept, new settings get the defaults;
-    # the file is written every time, so new settings are added to an existing file
+    # Patch settings: only the values that are set are written, the others stay commented out
+    # (nothing set = check only: no automatic updates, the defaults apply); the values already in
+    # the file are kept, the file is written every time, so new comments / settings are added
     cur() { [ -f "$CONF" ] && grep -qE "^[[:space:]]*$1[[:space:]]*=" "$CONF" || return 1
             sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*/\1/p" "$CONF" | tail -n 1 | sed 's/[[:space:]]*$//'; }
-    win=$(cur MAINTENANCE_WINDOW)  || win=$DEFAULT_WINDOW
-    auto=$(cur AUTO_UPDATE)        || auto=false
-    excl=$(cur EXCLUDE)            || excl=""
-    reboot=$(cur REBOOT)           || reboot=yes
+    UNSET="(not set)"
+    win=$(cur MAINTENANCE_WINDOW)  || win=$UNSET
+    [ -z "$win" ] && win=any
+    auto=$(cur AUTO_UPDATE)        || auto=$UNSET
+    excl=$(cur EXCLUDE)            || excl=$UNSET
+    [ -z "$excl" ] && excl=$UNSET
+    reboot=$(cur REBOOT)           || reboot=$UNSET
     keep=n
     if [ -f "$CONF" ]; then
         echo "Patch settings $CONF:"
-        printf '  MAINTENANCE_WINDOW="%s"\n  AUTO_UPDATE="%s"\n  EXCLUDE="%s"\n  REBOOT="%s"\n' "$win" "$auto" "$excl" "$reboot"
+        printf '  MAINTENANCE_WINDOW: %s\n  AUTO_UPDATE:        %s\n  EXCLUDE:            %s\n  REBOOT:             %s\n' "$win" "$auto" "$excl" "$reboot"
         ask "Keep them? (y/n)" y; keep=$REPLY
     fi
     case "$keep" in
         [Yy]*) ;;
         *)
+            echo "Enter = keep the shown value, - = not set (commented out). Nothing set = check only, no automatic updates."
             echo "Maintenance window: '<day> <HH:MM>-<HH:MM>', several separated by commas; day 1-7 = Monday-Sunday"
-            echo "  (or Mon..Sun), 1-5, * = every day, 2.3 = 2nd Wednesday; '-' = any time. Example: 3 03:00-05:00 = Wednesday"
-            ask "Maintenance window" "${win:--}"; win=$REPLY; [ "$win" = "-" ] && win=""
+            echo "  (or Mon..Sun), 1-5, * = every day, 2.3 = 2nd Wednesday; any = any time. Example: 3 03:00-05:00 = Wednesday"
+            ask "Maintenance window" "$win"; win=$REPLY
             ask "Automatic updates in the maintenance window (true/false)" "$auto"; auto=$REPLY
-            ask "Excluded packages, comma separated, wildcards allowed ('-' = none)" "${excl:--}"; excl=$REPLY; [ "$excl" = "-" ] && excl=""
+            ask "Excluded packages, comma separated, wildcards allowed" "$excl"; excl=$REPLY
             ask "Reboot after updates when needed (yes/no)" "$reboot"; reboot=$REPLY
             ;;
     esac
+    # KEY="value" when set, otherwise the commented example
+    setting() { case "$2" in "$UNSET"|-|"") echo "#$1=\"$3\"" ;; *) echo "$1=\"$2\"" ;; esac; }
+    [ "$win" = any ] && win_line='MAINTENANCE_WINDOW=""' || win_line=$(setting MAINTENANCE_WINDOW "$win" "3 03:00-05:00")
     mkdir -p "$(dirname "$CONF")"
     cat > "$CONF" <<EOF
 # zbx-patch.conf - patch management settings of this host
 # Read by the checker zbx-patch-linux.sh (sent to Zabbix, template 'APP Patch management all OS')
 # and by setup-linux.sh (update). Written by setup-linux.sh -
 # you can edit it, the values are kept when the setup runs again.
+# A setting that is commented out is not set: the default applies (nothing set = check only).
+# The Zabbix host macros {\$PATCH.CONF.*} win over this file (zbx-patch-from-zbx-host-macro.cache).
 #
-# Maintenance window - when updates may be installed and the host rebooted.
+# Maintenance window - when updates may be installed and the host rebooted (default: any time).
 #   "<day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
 #   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
 #   an end lower than the start = the window ends the next day (6 22:00-04:00)
 #   empty = any time
 #   MAINTENANCE_WINDOW="3 03:00-05:00"   = every Wednesday 03:00-05:00
-MAINTENANCE_WINDOW="$win"
+$win_line
 
 # Automatic updates: true = the checker installs the updates itself in the maintenance window
-# (cron every 15 min, once per window, log /var/log/zbx-patch-update.log); false = check only
-AUTO_UPDATE="$auto"
+# (cron every 15 min, once per window, log /var/log/zbx-patch-update.log); false = check only (default)
+$(setting AUTO_UPDATE "$auto" true)
 
-# Updates that are not installed, separated by commas: package names, wildcards allowed
-#   EXCLUDE="kernel*, docker-ce"
-EXCLUDE="$excl"
+# Updates that are not installed, separated by commas: package names, wildcards allowed (default: none)
+$(setting EXCLUDE "$excl" "kernel*, docker-ce")
 
-# Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix)
-REBOOT="$reboot"
+# Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix; default: yes)
+$(setting REBOOT "$reboot" no)
 EOF
     chmod 644 "$CONF"
     echo "Saved $CONF"

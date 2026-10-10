@@ -24,7 +24,6 @@
 & {
 $Mode          = "$env:ZBX_PATCH_MODE"     # monitor | check | update | force, empty = menu
 $IntervalHours = 12
-$DefaultWindow = '* 03:00-05:00'   # maintenance window of a new zbx-patch.conf: every night, never during the day
 $TaskName      = 'Zabbix patch check'
 $AutoTaskName  = 'Zabbix patch auto update'
 #
@@ -124,57 +123,64 @@ function Install-Monitor {
         -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 4)) | Out-Null
     Write-Host "Scheduled task '$AutoTaskName': every 15 min (installs updates only with AUTO_UPDATE=`"true`")"
     Unregister-ScheduledTask -TaskName 'Zabbix patch check after reboot' -Confirm:$false -ErrorAction SilentlyContinue
-    # Patch settings: the values already in the file are kept, new settings get the defaults;
-    # the file is written every time, so new settings are added to an existing file
+    # Patch settings: only the values that are set are written, the others stay commented out
+    # (nothing set = check only: no automatic updates, the defaults apply); the values already in
+    # the file are kept, the file is written every time, so new comments / settings are added
+    $unset = '(not set)'
     $cur = @{}
     if (Test-Path $PatchConf) {
         foreach ($l in Get-Content $PatchConf) { if ($l -match '^\s*([A-Z_]+)\s*=\s*"?([^"#]*)"?') { $cur[$Matches[1]] = $Matches[2].Trim() } }
     }
-    $win    = if ($cur.ContainsKey('MAINTENANCE_WINDOW')) { $cur['MAINTENANCE_WINDOW'] } else { $DefaultWindow }
-    $auto   = if ($cur.ContainsKey('AUTO_UPDATE')) { $cur['AUTO_UPDATE'] } else { 'false' }
-    $ex     = if ($cur.ContainsKey('EXCLUDE')) { $cur['EXCLUDE'] } else { '' }
-    $rb     = if ($cur.ContainsKey('REBOOT')) { $cur['REBOOT'] } else { 'yes' }
-    $keep   = 'n'
+    $win  = if ($cur.ContainsKey('MAINTENANCE_WINDOW')) { if ($cur['MAINTENANCE_WINDOW']) { $cur['MAINTENANCE_WINDOW'] } else { 'any' } } else { $unset }
+    $auto = if ($cur.ContainsKey('AUTO_UPDATE')) { $cur['AUTO_UPDATE'] } else { $unset }
+    $ex   = if ($cur.ContainsKey('EXCLUDE') -and $cur['EXCLUDE']) { $cur['EXCLUDE'] } else { $unset }
+    $rb   = if ($cur.ContainsKey('REBOOT')) { $cur['REBOOT'] } else { $unset }
+    $keep = 'n'
     if (Test-Path $PatchConf) {
         Write-Host "Patch settings ${PatchConf}:"
-        Write-Host "  MAINTENANCE_WINDOW=`"$win`"`n  AUTO_UPDATE=`"$auto`"`n  EXCLUDE=`"$ex`"`n  REBOOT=`"$rb`""
+        Write-Host "  MAINTENANCE_WINDOW: $win`n  AUTO_UPDATE:        $auto`n  EXCLUDE:            $ex`n  REBOOT:             $rb"
         $keep = Ask 'Keep them? (y/n)' 'y'
     }
     if ($keep -notmatch '^[Yy]') {
+        Write-Host 'Enter = keep the shown value, - = not set (commented out). Nothing set = check only, no automatic updates.'
         Write-Host "Maintenance window: '<day> <HH:MM>-<HH:MM>', several separated by commas; day 1-7 = Monday-Sunday"
-        Write-Host "  (or Mon..Sun), 1-5, * = every day, 2.3 = 2nd Wednesday; '-' = any time. Example: 3 03:00-05:00 = Wednesday"
-        $win = Ask 'Maintenance window' $(if ($win) { $win } else { '-' })
-        if ($win -eq '-') { $win = '' }
+        Write-Host "  (or Mon..Sun), 1-5, * = every day, 2.3 = 2nd Wednesday; any = any time. Example: 3 03:00-05:00 = Wednesday"
+        $win  = Ask 'Maintenance window' $win
         $auto = Ask 'Automatic updates in the maintenance window (true/false)' $auto
-        $ex = Ask "Excluded updates, comma separated: KB number or a part of the title ('-' = none)" $(if ($ex) { $ex } else { '-' })
-        if ($ex -eq '-') { $ex = '' }
-        $rb = Ask 'Reboot after updates when needed (yes/no)' $rb
+        $ex   = Ask 'Excluded updates, comma separated: KB number or a part of the title' $ex
+        $rb   = Ask 'Reboot after updates when needed (yes/no)' $rb
     }
+    # KEY="value" when set, otherwise the commented example
+    function Setting([string]$Key, [string]$Value, [string]$Example) {
+        if ($Value -in $unset, '-', '') { "#$Key=`"$Example`"" } else { "$Key=`"$Value`"" }
+    }
+    $winLine = if ($win -eq 'any') { 'MAINTENANCE_WINDOW=""' } else { Setting 'MAINTENANCE_WINDOW' $win '3 03:00-05:00' }
     @"
 # zbx-patch.conf - patch management settings of this host
 # Read by the checker zbx-patch-windows.ps1 (sent to Zabbix, template 'APP Patch management all OS')
 # and by setup-windows.ps1 (update). Written by setup-windows.ps1 -
 # you can edit it, the values are kept when the setup runs again.
+# A setting that is commented out is not set: the default applies (nothing set = check only).
+# The Zabbix host macros {`$PATCH.CONF.*} win over this file (zbx-patch-from-zbx-host-macro.cache).
 #
-# Maintenance window - when updates may be installed and the host rebooted.
+# Maintenance window - when updates may be installed and the host rebooted (default: any time).
 #   "<day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
 #   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
 #   an end lower than the start = the window ends the next day (6 22:00-04:00)
 #   empty = any time
 #   MAINTENANCE_WINDOW="3 03:00-05:00"   = every Wednesday 03:00-05:00
-MAINTENANCE_WINDOW="$win"
+$winLine
 #
 # Automatic updates: true = the checker installs the updates itself in the maintenance window
 # (task "Zabbix patch auto update" every 15 min, once per window, log C:\ProgramData\zbx-patch\update.log);
-# false = check only
-AUTO_UPDATE="$auto"
+# false = check only (default)
+$(Setting 'AUTO_UPDATE' $auto 'true')
 #
-# Updates that are not installed, separated by commas: KB number or a part of the title
-#   EXCLUDE="KB5034441, Preview"
-EXCLUDE="$ex"
+# Updates that are not installed, separated by commas: KB number or a part of the title (default: none)
+$(Setting 'EXCLUDE' $ex 'KB5034441, Preview')
 #
-# Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix)
-REBOOT="$rb"
+# Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix; default: yes)
+$(Setting 'REBOOT' $rb 'no')
 "@ | Set-Content -Path $PatchConf -Encoding ASCII
     Write-Host "Saved $PatchConf"
     # Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} -> zbx-patch-from-zbx-host-macro.cache),

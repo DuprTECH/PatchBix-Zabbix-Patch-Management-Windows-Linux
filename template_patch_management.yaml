@@ -892,32 +892,19 @@ zabbix_export:
                 - tag: scope
                   value: notice
         - uuid: e02807b5cd9a45269faa3291f81ee139
-          name: 'Patch - Config (in effect, with source)'
+          name: 'Patch - Config'
           type: TRAP
           key: patch.config.override
           history: 90d
           value_type: TEXT
           trends: '0'
           description: |
-            The patch settings in effect on the host, each with its source, for example:
-            ✎ window: 1-5 03:00-05:00, ▤ auto update: false, ▤ reboot: yes, ○ exclude: -
-            ✎ = Zabbix host macro {$PATCH.CONF.*} (server; zbx-patch-from-zbx-host-macro.cache, wins),
-            ▤ = zbx-patch.conf on the host (config from the setup), ○ = set nowhere, the default applies.
-            The check script sends [S] / [C] / [D], the preprocessing replaces them with the symbols
-            (Unicode BMP characters, they work also with a MySQL database in utf8 / utf8mb3).
+            The patch settings that are set on the host (zbx-patch.conf or the host macros {$PATCH.CONF.*}), for example:
+            window: 1-5 03:00-05:00 (macro), auto update: true
+            (macro) = from the Zabbix host macro (zbx-patch-from-zbx-host-macro.cache, wins over zbx-patch.conf).
+            Empty = nothing set, the defaults apply: check only (no automatic updates), any time, reboot when needed,
+            nothing excluded.
           preprocessing:
-            - type: STR_REPLACE
-              parameters:
-                - '[S]'
-                - ✎
-            - type: STR_REPLACE
-              parameters:
-                - '[C]'
-                - ▤
-            - type: STR_REPLACE
-              parameters:
-                - '[D]'
-                - ○
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
                 - 6h
@@ -1591,7 +1578,7 @@ zabbix_export:
                       name: thresholds.0.threshold
                       value: '1'
                 - type: item
-                  name: 'Config - ✎ Zabbix macro, ▤ zbx-patch.conf, ○ default'
+                  name: 'Config'
                   'y': '9'
                   width: '48'
                   height: '3'

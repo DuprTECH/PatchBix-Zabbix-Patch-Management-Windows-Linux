@@ -43,9 +43,9 @@
 # {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}): the agent item patch.config (UserParameter, installed by
 # --install-agent-config) writes the set ones to zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf
 # (PATCH_CONF_MACRO). Its keys win over zbx-patch.conf, which is never changed from Zabbix.
-# patch.config.override: the settings in effect with their source, for example
-#   [S] window: 1-5 03:00-05:00, [C] auto update: false, [C] reboot: yes, [D] exclude: -
-#   ([S] = Zabbix host macro, [C] = zbx-patch.conf, [D] = set nowhere, the default applies)
+# patch.config.override: the settings that are set, " (macro)" = from the host macro, for example
+#   window: 1-5 03:00-05:00 (macro), auto update: true
+#   Empty = nothing set: no automatic updates, any time, reboot when needed, nothing excluded.
 #
 # Options:
 #   --show-config   print the patch settings as JSON (window active now, next window,
@@ -74,7 +74,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.11.2"
+SCRIPT_VERSION="26.10.11.3"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -174,19 +174,24 @@ case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|tru
 # Keys set by the host macros
 MACRO_KEYS=$( [ -r "$PATCH_CONF_MACRO" ] && sed -n -E 's/^[[:space:]]*([A-Z_]+)[[:space:]]*=.*/\1/p' "$PATCH_CONF_MACRO" \
     | sort -u | paste -sd, - | sed 's/,/, /g')
-# Source of a setting: S (Zabbix host macro), C (zbx-patch.conf) or D (default - set nowhere)
+# Source of a setting: macro (Zabbix host macro), conf (zbx-patch.conf) or nothing (not set - the default applies)
 conf_src() {
     local f
-    for f in "$PATCH_CONF_MACRO:S" "$PATCH_CONF:C"; do
+    for f in "$PATCH_CONF_MACRO:macro" "$PATCH_CONF:conf"; do
         [ -r "${f%:*}" ] && grep -qE "^[[:space:]]*$1[[:space:]]*=" "${f%:*}" && { echo "${f##*:}"; return; }
     done
-    echo D
 }
-# Settings in effect with their source (item patch.config.override, column Config of the dashboards)
-CONFIG_SUMMARY="[$(conf_src MAINTENANCE_WINDOW)] window: ${MAINTENANCE_WINDOW:-any time}"
-CONFIG_SUMMARY+=", [$(conf_src AUTO_UPDATE)] auto update: $( [ "$AUTO_UPDATE" -eq 1 ] && echo true || echo false)"
-CONFIG_SUMMARY+=", [$(conf_src REBOOT)] reboot: $( [ "$REBOOT_ALLOWED" -eq 1 ] && echo yes || echo no)"
-CONFIG_SUMMARY+=", [$(conf_src EXCLUDE)] exclude: ${EXCLUDE:--}"
+# The settings that are set (zbx-patch.conf or host macro), " (macro)" = from the host macro; empty = nothing
+# set, the defaults apply (item patch.config.override, column Config of the dashboards)
+CONFIG_SUMMARY=""
+conf_add() {
+    local s; s=$(conf_src "$1"); [ -n "$s" ] || return 0
+    CONFIG_SUMMARY+="${CONFIG_SUMMARY:+, }$2: $3$( [ "$s" = macro ] && echo " (macro)")"
+}
+conf_add MAINTENANCE_WINDOW window "${MAINTENANCE_WINDOW:-any time}"
+conf_add AUTO_UPDATE "auto update" "$( [ "$AUTO_UPDATE" -eq 1 ] && echo true || echo false)"
+conf_add REBOOT reboot "$( [ "$REBOOT_ALLOWED" -eq 1 ] && echo yes || echo no)"
+conf_add EXCLUDE exclude "${EXCLUDE:--}"
 
 # Exclusions: comma separated package names, wildcards allowed
 EXCL=()
