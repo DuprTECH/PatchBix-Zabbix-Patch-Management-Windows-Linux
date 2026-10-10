@@ -1266,7 +1266,7 @@ zabbix_export:
                       value: '20'
                 - type: itemhistory
                   name: 'Pending updates'
-                  'y': '6'
+                  'y': '12'
                   width: '36'
                   height: '9'
                   fields:
@@ -1296,7 +1296,7 @@ zabbix_export:
                 - type: itemhistory
                   name: 'Update history (recent installs)'
                   x: '36'
-                  'y': '6'
+                  'y': '12'
                   width: '36'
                   height: '9'
                   fields:
@@ -1325,7 +1325,7 @@ zabbix_export:
                       value: '1'
                 - type: svggraph
                   name: 'Pending updates (30 days)'
-                  'y': '15'
+                  'y': '21'
                   width: '36'
                   height: '5'
                   fields:
@@ -1400,7 +1400,7 @@ zabbix_export:
                 - type: svggraph
                   name: 'Reboot required / time since reboot (30 days)'
                   x: '36'
-                  'y': '15'
+                  'y': '21'
                   width: '36'
                   height: '5'
                   fields:
@@ -1467,7 +1467,7 @@ zabbix_export:
                       value: '1'
                 - type: problems
                   name: 'Patch management problems'
-                  'y': '20'
+                  'y': '26'
                   width: '72'
                   height: '5'
                   fields:
@@ -1491,7 +1491,7 @@ zabbix_export:
                       value: 'patch-management'
                 - type: item
                   name: 'Auto update (config)'
-                  'y': '25'
+                  'y': '6'
                   width: '24'
                   height: '3'
                   fields:
@@ -1515,7 +1515,7 @@ zabbix_export:
                 - type: item
                   name: 'Next maintenance window'
                   x: '24'
-                  'y': '25'
+                  'y': '6'
                   width: '12'
                   height: '3'
                   fields:
@@ -1533,7 +1533,7 @@ zabbix_export:
                 - type: item
                   name: 'Reboot allowed'
                   x: '36'
-                  'y': '25'
+                  'y': '6'
                   width: '12'
                   height: '3'
                   fields:
@@ -1551,7 +1551,7 @@ zabbix_export:
                 - type: item
                   name: 'Excluded (config)'
                   x: '48'
-                  'y': '25'
+                  'y': '6'
                   width: '12'
                   height: '3'
                   fields:
@@ -1569,7 +1569,7 @@ zabbix_export:
                 - type: item
                   name: 'Pending excluded'
                   x: '60'
-                  'y': '25'
+                  'y': '6'
                   width: '12'
                   height: '3'
                   fields:
@@ -1592,7 +1592,7 @@ zabbix_export:
                       value: '1'
                 - type: item
                   name: 'Config - ✎ Zabbix macro, ▤ zbx-patch.conf, ○ default'
-                  'y': '28'
+                  'y': '9'
                   width: '48'
                   height: '3'
                   fields:
@@ -1610,7 +1610,7 @@ zabbix_export:
                 - type: item
                   name: 'Host macros - agent result'
                   x: '48'
-                  'y': '28'
+                  'y': '9'
                   width: '24'
                   height: '3'
                   fields:
