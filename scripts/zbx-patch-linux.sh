@@ -64,6 +64,8 @@
 #   --zabbix-config "<window>|<unused>|<exclude>|<reboot>"
 #                   for the agent (UserParameter patch.config): validate the macro values and write
 #                   the macro file (only when changed); prints OK / ERROR for the item
+#   --send-config   send only the patch settings to Zabbix (run by --zabbix-config in the background
+#                   after a change of the host macros, so the dashboards show it right away)
 #   --install-agent-config
 #                   for the setup (root): UserParameter patch.config in the agent Include folder,
 #                   the macro file writable by the agent, restart of the agent (undone when it fails)
@@ -79,7 +81,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.11.5"
+SCRIPT_VERSION="26.10.11.6"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -315,6 +317,7 @@ while [ $# -gt 0 ]; do
         --force)                FORCE=1 ;;
         --zabbix-config)        MODE=zabbix; ZBX_VALUES="${2-}"; shift ;;
         --install-agent-config) MODE=agentconf ;;
+        --send-config)          MODE=sendconfig ;;
     esac
     shift
 done
@@ -368,8 +371,24 @@ zabbix_config() {
     fi
     printf '%s\n' "$content" > "$PATCH_CONF_MACRO" || { echo "ERROR: writing $PATCH_CONF_MACRO failed"; return; }
     echo "OK, written: $summary"
+    # Show the new settings in Zabbix right away (the full check runs every 12 h) - in the background,
+    # so the agent doesn't wait
+    ( "$(readlink -f "$0")" --send-config </dev/null >/dev/null 2>&1 & )
 }
 if [ "$MODE" = zabbix ]; then zabbix_config "$ZBX_VALUES"; exit 0; fi
+
+# --send-config: only the patch settings (after a change of the host macros, by --zabbix-config)
+if [ "$MODE" = sendconfig ]; then
+    {
+        echo "- patch.autoupdate.config $AUTO_UPDATE"
+        echo "- patch.config.override $(q "$CONFIG_SUMMARY")"
+        echo "- patch.reboot.allowed $REBOOT_ALLOWED"
+        echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
+        [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"
+        echo "- patch.exclude $(q "${EXCLUDE:--}")"
+    } | send -i -
+    exit 0
+fi
 
 # ---------------- --install-agent-config (root, run by the setup) ----------------
 # UserParameter patch.config in a file of the agent Include folder (the main config is changed only

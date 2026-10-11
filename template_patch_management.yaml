@@ -864,7 +864,7 @@ zabbix_export:
           name: 'Patch - Settings from host macros (agent)'
           type: ZABBIX_ACTIVE
           key: 'patch.config["{$PATCH.CONF.WINDOW}","","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
-          delay: 10m
+          delay: 5m
           history: 30d
           value_type: CHAR
           trends: '0'
@@ -1148,7 +1148,7 @@ zabbix_export:
                       name: thresholds.1.threshold
                       value: '3888000'
                 - type: item
-                  name: 'Time since reboot'
+                  name: 'Uptime'
                   x: '63'
                   width: '9'
                   height: '3'
@@ -1502,6 +1502,9 @@ zabbix_export:
                       name: show.0
                       value: '2'
                     - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: INTEGER
                       name: value_size
                       value: '20'
                     - type: STRING
@@ -1543,6 +1546,9 @@ zabbix_export:
                     - type: INTEGER
                       name: show.0
                       value: '2'
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
                       value: '20'

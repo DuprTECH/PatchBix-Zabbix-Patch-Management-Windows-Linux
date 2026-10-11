@@ -83,6 +83,10 @@
     and 1-7 = every day (instead of *), "none" = no window (no automatic updates); exclude % = wildcard,
     "none" = nothing excluded. The 2nd value (was AUTO_UPDATE) is ignored.
 
+.PARAMETER SendConfig
+    Send only the patch settings to Zabbix (started by -ZabbixConfig in the background after a change of
+    the host macros, so the dashboards show it right away).
+
 .PARAMETER InstallAgentConfig
     For the setup (administrator): UserParameter patch.config in a file of the agent Include folder
     (the main config gets an Include only when it has none), the macro file, restart of the agent
@@ -110,13 +114,14 @@ param(
     [switch]$AutoUpdate,
     [switch]$Force,
     [string]$ZabbixConfig,
-    [switch]$InstallAgentConfig
+    [switch]$InstallAgentConfig,
+    [switch]$SendConfig
 )
 
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11.5'
+$ScriptVersion = '26.10.11.6'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -344,9 +349,38 @@ function Set-MacroConfig([string]$Values) {
     }
     try { Set-Content -Path $PatchConfigMacro -Value $content -Encoding ASCII -ErrorAction Stop }
     catch { return "ERROR: writing $PatchConfigMacro failed: $($_.Exception.Message)" }
+    # Show the new settings in Zabbix right away (the full check runs every 12 h) - in the background,
+    # so the agent doesn't wait
+    try {
+        $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-ConfigPath', "`"$ConfigPath`"",
+               '-PatchConfig', "`"$PatchConfig`"", '-SendConfig')
+        Start-Process -FilePath 'powershell.exe' -ArgumentList $a -WindowStyle Hidden
+    } catch {}
     "OK, written: $summary"
 }
 if ($PSBoundParameters.ContainsKey('ZabbixConfig')) { Set-MacroConfig $ZabbixConfig; exit 0 }
+
+# -SendConfig: only the patch settings (after a change of the host macros, by -ZabbixConfig)
+if ($SendConfig) {
+    if (-not (Test-Path $SenderPath) -and $ConfigPath) { $SenderPath = Join-Path (Split-Path $ConfigPath -Parent) 'zabbix_sender.exe' }
+    $m = Get-Maintenance $maintWindow
+    $lines = @(
+        "- patch.autoupdate.config $autoInstall",
+        "- patch.config.override $(Q $configSummary)",
+        "- patch.reboot.allowed $rebootAllowed",
+        "- patch.maintenance.window $(Q ($(if ($maintWindow) { $maintWindow } else { '-' }) + $(if ($m.error) { " ($($m.error))" })))",
+        "- patch.exclude $(Q $(if ($excludeText.Trim()) { $excludeText.Trim() } else { '-' }))"
+    )
+    if ($m.next) { $lines += "- patch.maintenance.next $(ConvertTo-Epoch $m.next)" }
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+        [System.IO.File]::WriteAllLines($tmp, [string[]]$lines, (New-Object System.Text.UTF8Encoding $false))
+        Send-ToZabbix -SenderArgs @("-i", $tmp)
+    } finally {
+        Remove-Item $tmp -ErrorAction SilentlyContinue
+    }
+    exit 0
+}
 
 # ---------------- -InstallAgentConfig (administrator, run by the setup) ----------------
 function Install-AgentConfig {
