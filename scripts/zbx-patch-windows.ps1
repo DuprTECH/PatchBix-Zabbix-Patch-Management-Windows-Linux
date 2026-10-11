@@ -121,7 +121,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11.8'
+$ScriptVersion = '26.10.11.9'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -174,9 +174,11 @@ function Q([string]$Value) { '"' + ($Value -replace '\\', '\\' -replace '"', "'"
 # Windows PowerShell 5.1 doesn't escape double quotes in native arguments, so replace them
 function Clean([string]$Value) { $Value -replace '"', "'" }
 
+# Definition update (Microsoft Defender, ...): by the category, or by the title - the entries of the update
+# history usually have no categories
 function Test-Definition($Entry) {
     try { foreach ($c in $Entry.Categories) { if ("$($c.CategoryID)".ToLower() -eq $DefinitionId) { return $true } } } catch {}
-    return $false
+    "$($Entry.Title)" -match 'Security Intelligence Update|Definition Update|KB2267602|KB915597'
 }
 
 # ---------------- Patch settings (zbx-patch.conf) ----------------
