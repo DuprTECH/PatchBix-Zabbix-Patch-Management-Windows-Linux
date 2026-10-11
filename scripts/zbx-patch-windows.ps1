@@ -44,12 +44,16 @@
 .PARAMETER PatchConfig
     Patch settings of the host (default: zbx-patch.conf in the folder of the agent config).
     The same file format as on Linux:
-      MAINTENANCE_WINDOW="3 03:00-05:00"       when updates may be installed and the host rebooted
-                                                (day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday)
-      AUTO_UPDATE="false"                       true = this script installs the updates itself in the
-                                                maintenance window (-AutoUpdate task), false = check only
+      MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"
+                    when and which updates this script installs itself (-AutoUpdate task):
+                    "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas; types: * or all = all
+                    updates (also without types), crit = critical (classification Critical Updates or MSRC
+                    severity Critical), sec = security, def = definitions, kernel = Linux only, several joined
+                    with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday.
+                    No window = no automatic updates (only -Update -Force installs).
       EXCLUDE="KB5034441, Preview"              updates that are not installed (KB number or a part of the title)
-      REBOOT="true"                              reboot after updates when needed (false = report only)
+      REBOOT="true"                             reboot after updates when needed (false = report only)
+      AUTO_UPDATE="false"                       legacy (older installs): blocks the automatic updates
     They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
     patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with -ShowConfig.
 
@@ -59,24 +63,25 @@
 
 .PARAMETER Update
     Install the updates now (Windows Update: security, critical, update rollups, definitions, updates;
-    without EXCLUDE), only in the maintenance window (with -Force also outside), send the result to
+    without EXCLUDE), only in an open maintenance window and only its update types (-Force: all updates,
+    also outside a window), send the result to
     Zabbix (patch.install.*), reboot when needed and REBOOT="true", then check.
 
 .PARAMETER AutoUpdate
-    For the scheduled task (every 15 min): with AUTO_UPDATE="true" and an open maintenance window
-    does -Update once per window, otherwise exits right away (log: C:\ProgramData\zbx-patch\update.log).
+    For the scheduled task (every 15 min): in an open maintenance window does -Update once per window
+    (its update types), otherwise exits right away (log: C:\ProgramData\zbx-patch\update.log).
 
 .PARAMETER Force
-    With -Update: install also outside the maintenance window.
+    With -Update: install all updates, also outside a maintenance window.
 
 .PARAMETER ZabbixConfig
-    For the Zabbix agent (UserParameter patch.config): "<window>|<auto update>|<exclude>|<reboot>", the
-    values of the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE},
-    {$PATCH.CONF.REBOOT}. The set (non empty) ones are validated and written to
+    For the Zabbix agent (UserParameter patch.config): "<window>|<unused>|<exclude>|<reboot>", the
+    values of the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}. The set (non empty) ones are validated and written to
     zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf (only when they changed); its keys win over
     zbx-patch.conf, which is never changed from Zabbix. Prints OK / ERROR for the item.
-    The agent forbids * " ' $ ; | # and other characters in the values, so: window 1-7 = every day
-    (instead of *), "any" = any time; exclude % = wildcard, "none" = nothing excluded.
+    The agent forbids * " ' $ ; | # and other characters in the values, so: window all = all update types
+    and 1-7 = every day (instead of *), "none" = no window (no automatic updates); exclude % = wildcard,
+    "none" = nothing excluded. The 2nd value (was AUTO_UPDATE) is ignored.
 
 .PARAMETER InstallAgentConfig
     For the setup (administrator): UserParameter patch.config in a file of the agent Include folder
@@ -111,7 +116,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11.4'
+$ScriptVersion = '26.10.11.5'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -204,18 +209,24 @@ $maintWindow   = "$($conf['MAINTENANCE_WINDOW'])"
 $excludeText   = "$($conf['EXCLUDE'])"
 $exclude       = @($excludeText -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $rebootAllowed = if ("$($conf['REBOOT'])" -match '^(no|false|0|off)$') { 0 } else { 1 }
-$autoInstall   = if ("$($conf['AUTO_UPDATE'])" -match '^(yes|true|1|on)$') { 1 } else { 0 }
+# Automatic updates: on when a maintenance window is set - the script installs the update types of the
+# window in it (-AutoUpdate task). Legacy AUTO_UPDATE="false" (zbx-patch.conf of older installs) still
+# blocks them, AUTO_UPDATE="true" is not needed any more.
+$autoUpdateOff = "$($conf['AUTO_UPDATE'])" -match '^(no|false|0|off)$'
+$autoInstall   = if ($maintWindow -and -not $autoUpdateOff) { 1 } else { 0 }
 
-# The settings that are set (zbx-patch.conf or host macro), " (macro)" = from the host macro; empty = nothing
-# set, the defaults apply (item patch.config.override, column Config of the dashboards)
+# The settings that are set, each with its source: [S] = Zabbix host macro, [C] = zbx-patch.conf (the item
+# preprocessing shows them as symbols); empty = nothing set - no automatic updates
+# (item patch.config.override, column Config of the dashboards)
 $configParts = @()
 foreach ($s in @(
-        @('MAINTENANCE_WINDOW', 'window', $(if ($maintWindow) { $maintWindow } else { 'any time' })),
-        @('AUTO_UPDATE', 'auto update', $(if ($autoInstall) { 'true' } else { 'false' })),
-        @('REBOOT', 'reboot', $(if ($rebootAllowed) { 'true' } else { 'false' })),
-        @('EXCLUDE', 'exclude', $(if ($excludeText) { $excludeText } else { '-' })))) {
-    if ($confMacro.Contains($s[0])) { $configParts += "$($s[1]): $($s[2]) (macro)" }
-    elseif ($confFile.Contains($s[0])) { $configParts += "$($s[1]): $($s[2])" }
+        @('MAINTENANCE_WINDOW', 'window', $(if ($maintWindow) { $maintWindow } else { 'none (no automatic updates)' })),
+        @('AUTO_UPDATE', 'auto update', $(if ($autoUpdateOff) { 'off (AUTO_UPDATE=false)' } else { '' })),
+        @('EXCLUDE', 'exclude', $(if ($excludeText) { $excludeText } else { '-' })),
+        @('REBOOT', 'reboot', $(if ($rebootAllowed) { 'true' } else { 'false' })))) {
+    if (-not $s[2]) { continue }
+    if ($confMacro.Contains($s[0])) { $configParts += "[S] $($s[1]): $($s[2])" }
+    elseif ($confFile.Contains($s[0])) { $configParts += "[C] $($s[1]): $($s[2])" }
 }
 $configSummary = $configParts -join ', '
 
@@ -225,10 +236,24 @@ function Test-Excluded([string]$Title, [string]$Kb) {
     return $false
 }
 
-# Maintenance window "<day> <HH:MM>-<HH:MM>, ..." - day: 3 or Wed (1 = Monday ... 7 = Sunday), a range
-# 1-5 / Mon-Fri, * (every day), 2.3 / 2.Wed (2nd Wednesday of the month); an end lower than the start = the next day
+# Update types of a window: * or all = all updates, crit = critical (classification Critical Updates or
+# MSRC severity Critical), sec = security, def = definitions, kernel = Linux only (nothing on Windows);
+# several joined with +, for example crit+def. Returns the normalized types or $null when invalid.
+function ConvertTo-UpdateTypes([string]$Spec) {
+    $out = @()
+    foreach ($t in ($Spec.ToLower() -split '\+')) {
+        if ($t -in '*', 'all') { return '*' }
+        if ($t -notin 'crit', 'sec', 'kernel', 'def') { return $null }
+        if ($out -notcontains $t) { $out += $t }
+    }
+    if ($out.Count) { $out -join '+' } else { $null }
+}
+
+# Maintenance window "[<types>] <day> <HH:MM>-<HH:MM>, ..." - without types = all updates; day: 3 or Wed
+# (1 = Monday ... 7 = Sunday), a range 1-5 / Mon-Fri, * (every day), 2.3 / 2.Wed (2nd Wednesday of the
+# month); an end lower than the start = the next day. types = update types of the open window(s)
 function Get-Maintenance([string]$Spec) {
-    $r = @{ active = $false; start = $null; next = $null; error = '' }
+    $r = @{ active = $false; start = $null; next = $null; error = ''; types = '' }
     if (-not $Spec) { return $r }
     $days = 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
     function DayNum($n) {
@@ -239,10 +264,12 @@ function Get-Maintenance([string]$Spec) {
     foreach ($w in ($Spec -split ',')) {
         $w = $w.Trim()
         if (-not $w) { continue }
-        $ok = $w -match '^(\S+)\s+(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$'
+        $ok = $w -match '^(?:(\S+)\s+)?(\S+)\s+(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$'
+        $types = '*'
         if ($ok) {
-            $d = $Matches[1]; $h1 = [int]$Matches[2]; $m1 = [int]$Matches[3]; $h2 = [int]$Matches[4]; $m2 = [int]$Matches[5]
-            $ok = $h1 -le 23 -and $h2 -le 23 -and $m1 -le 59 -and $m2 -le 59
+            if ($Matches[1]) { $types = ConvertTo-UpdateTypes $Matches[1]; $ok = [bool]$types }
+            $d = $Matches[2]; $h1 = [int]$Matches[3]; $m1 = [int]$Matches[4]; $h2 = [int]$Matches[5]; $m2 = [int]$Matches[6]
+            $ok = $ok -and $h1 -le 23 -and $h2 -le 23 -and $m1 -le 59 -and $m2 -le 59
         }
         $nth = 0; $from = 0; $to = 0
         if ($ok) {
@@ -256,7 +283,7 @@ function Get-Maintenance([string]$Spec) {
             if (-not $r.error) { $r.error = "invalid maintenance window '$w'" }
             continue
         }
-        $wins += [pscustomobject]@{ nth = $nth; from = $from; to = $to; start = $h1 * 60 + $m1; end = $h2 * 60 + $m2 }
+        $wins += [pscustomobject]@{ nth = $nth; from = $from; to = $to; start = $h1 * 60 + $m1; end = $h2 * 60 + $m2; types = $types }
     }
     $now = Get-Date
     for ($i = -1; $i -le 62; $i++) {
@@ -269,7 +296,11 @@ function Get-Maintenance([string]$Spec) {
             if (-not $match) { continue }
             $s = $day.AddMinutes($w.start); $e = $day.AddMinutes($w.end)
             if ($e -le $s) { $e = $e.AddDays(1) }
-            if ($now -ge $s -and $now -lt $e) { $r.active = $true; $r.start = $s }
+            if ($now -ge $s -and $now -lt $e) {
+                $r.active = $true
+                if (-not $r.start -or $s -lt $r.start) { $r.start = $s }
+                $r.types = ConvertTo-UpdateTypes ($(if ($r.types) { "$($r.types)+" }) + $w.types)
+            }
             if ($s -gt $now -and (-not $r.next -or $s -lt $r.next)) { $r.next = $s }
         }
     }
@@ -280,20 +311,15 @@ function Get-Maintenance([string]$Spec) {
 # Run by the Zabbix agent (UserParameter patch.config). Invalid values: nothing is written, "ERROR: ..."
 function Set-MacroConfig([string]$Values) {
     $f = @($Values -split '\|') + @('', '', '', '')
-    $w = $f[0].Trim(); $a = $f[1].Trim(); $e = $f[2].Trim(); $r = $f[3].Trim()
+    # the 2nd value was AUTO_UPDATE - ignored, the maintenance window turns the automatic updates on
+    $w = $f[0].Trim(); $e = $f[2].Trim(); $r = $f[3].Trim()
     $keys = @(); $lines = @()
     if ($w) {
-        if ($w -eq 'any') { $w = '' }
-        if ($w -notmatch '^[0-9A-Za-z .,:\-]*$') { return "ERROR: invalid {`$PATCH.CONF.WINDOW} '$w'" }
+        if ($w -in 'none', 'any') { $w = '' }
+        if ($w -notmatch '^[0-9A-Za-z .,:+\-]*$') { return "ERROR: invalid {`$PATCH.CONF.WINDOW} '$w'" }
         $err = (Get-Maintenance $w).error
         if ($err) { return "ERROR: {`$PATCH.CONF.WINDOW}: $err" }
         $keys += 'MAINTENANCE_WINDOW'; $lines += "MAINTENANCE_WINDOW=`"$w`""
-    }
-    if ($a) {
-        if ($a -match '^(yes|true|1|on)$') { $a = 'true' }
-        elseif ($a -match '^(no|false|0|off)$') { $a = 'false' }
-        else { return "ERROR: invalid {`$PATCH.CONF.AUTO_UPDATE} '$a' (true / false)" }
-        $keys += 'AUTO_UPDATE'; $lines += "AUTO_UPDATE=`"$a`""
     }
     if ($e) {
         if ($e -eq 'none') { $e = '' }
@@ -402,13 +428,16 @@ if ($ShowConfig) {
         exclude            = $exclude
         reboot_allowed     = [bool]$rebootAllowed
         auto_update        = [bool]$autoInstall
+        auto_update_blocked = [bool]$autoUpdateOff
+        maintenance_types  = $maint.types
         macro_config       = $PatchConfigMacro
         macro_keys         = $macroKeys
+        config_summary     = $configSummary
     } | ConvertTo-Json -Compress
     exit 0
 }
 
-# -AutoUpdate (scheduled task every 15 min): only with AUTO_UPDATE="true", in an open window, once per window
+# -AutoUpdate (scheduled task every 15 min): only with a maintenance window, when it is open, once per window
 $stateDir = Join-Path $env:ProgramData 'zbx-patch'
 $stamp    = Join-Path $stateDir 'last-auto-update'
 $logFile  = $null
@@ -421,7 +450,7 @@ if ($AutoUpdate) {
     $logFile = Join-Path $stateDir 'update.log'
     Start-Transcript -Path $logFile -Append | Out-Null
     Write-Output ("=== {0:yyyy-MM-dd HH:mm} automatic update in the maintenance window '{1}'" -f (Get-Date), $maintWindow)
-    $Update = $true; $Force = $true
+    $Update = $true
 }
 if ($maint.error) { Write-Warning "${PatchConfig}: $($maint.error)" }
 
@@ -448,11 +477,19 @@ function Get-RebootReasons {
 # Like the Ansible playbook: security, critical, update rollups, definitions and updates without EXCLUDE,
 # reboot when needed and allowed; the result goes to the patch.install.* items
 function Install-Updates {
-    if ($maintWindow -and -not $maint.active -and -not $Force) {
+    # Only in an open maintenance window and only its update types; -Force = all updates, also outside
+    if ($Force) { $types = '*' }
+    elseif ($maint.active) { $types = $maint.types }
+    elseif (-not $maintWindow) {
+        Write-Host 'SKIPPED: no maintenance window - updates are installed only in a maintenance window. Install now with -Force.'
+        return 'skipped'
+    } else {
         $next = if ($maint.next) { '{0:yyyy-MM-dd HH:mm}' -f $maint.next } else { '-' }
         Write-Host "SKIPPED: outside the maintenance window '$maintWindow', next window: $next. Install now with -Force."
         return 'skipped'
     }
+    $typeList = @($types -split '\+')
+    Write-Host "Update types: $(if ($types -eq '*') { 'all' } else { $types })"
     $install = @('e6cf1350-c01b-414d-a61f-263d14d133b4', '0fa1201d-4330-4fa8-8ae9-b877473b6441', 'e0789628-ce08-4437-be74-2495b842f43b',
                  '28bc880e-0592-4cbf-8f95-c79b17911d5f', 'cd5ffd1e-e932-4e3a-bf74-18bf0b1bbd83')
     $installed = @(); $failed = @(); $err = ''; $needReboot = $false
@@ -463,7 +500,14 @@ function Install-Updates {
         $coll    = New-Object -ComObject Microsoft.Update.UpdateColl
         foreach ($u in $found) {
             $ok = $false
-            foreach ($cat in $u.Categories) { if ($install -contains "$($cat.CategoryID)".ToLower()) { $ok = $true } }
+            $cats = @(foreach ($cat in $u.Categories) { "$($cat.CategoryID)".ToLower() })
+            if ($types -eq '*') { $ok = @($cats | Where-Object { $install -contains $_ }).Count -gt 0 }
+            else {
+                # crit = classification Critical Updates or MSRC severity Critical, sec = Security Updates, def = definitions
+                if ($typeList -contains 'crit' -and ($cats -contains 'e6cf1350-c01b-414d-a61f-263d14d133b4' -or "$($u.MsrcSeverity)" -eq 'Critical')) { $ok = $true }
+                if ($typeList -contains 'sec' -and $cats -contains '0fa1201d-4330-4fa8-8ae9-b877473b6441') { $ok = $true }
+                if ($typeList -contains 'def' -and $cats -contains 'e0789628-ce08-4437-be74-2495b842f43b') { $ok = $true }
+            }
             if (-not $ok) { continue }
             $kb = if ($u.KBArticleIDs.Count -gt 0) { 'KB' + $u.KBArticleIDs.Item(0) } else { '-' }
             if ($exclude.Count -gt 0 -and (Test-Excluded $u.Title $kb)) { Write-Host "Excluded: $($u.Title)"; continue }
@@ -666,7 +710,7 @@ $autoDetail = "Windows Update: $autoDetail"
 if ($wsus) { $autoDetail += "; WSUS $wsus (approved updates only)" }
 if ($autoInstall) {
     $autoUpdateMode = if ($autoUpdateMode -gt 0) { 4 } else { 3 }
-    $autoDetail = "Patch management (AUTO_UPDATE in zbx-patch.conf, window '$maintWindow'); $autoDetail"
+    $autoDetail = "Patch management (maintenance window '$maintWindow'); $autoDetail"
 }
 $source = if ($wsus) { "WSUS $wsus" } else { 'Windows Update' }
 
@@ -686,7 +730,7 @@ $lines = @(
     "- patch.service.startup $startup",
     "- patch.autoupdate $autoUpdateMode",
     "- patch.autoupdate.detail $(Q $autoDetail)",
-    # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (-AutoUpdate task)
+    # 1 = this script installs the updates in the maintenance window (-AutoUpdate task): a window is set
     "- patch.autoupdate.config $autoInstall",
     "- patch.config.override $(Q $configSummary)",
     "- patch.reboot.allowed $rebootAllowed",
@@ -722,6 +766,6 @@ if ($searchOk) {
 
 Write-Output "Pending updates: $($counts.all) (critical $($counts.critical), security $($counts.security), excluded $excluded), reboot required: $rebootRequired, result: $result"
 $nextText = if ($maint.next) { " (next {0:yyyy-MM-dd HH:mm})" -f $maint.next } else { "" }
-Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed, auto update: $autoInstall$(if ($macroKeys) { ", from host macros: $macroKeys" })"
+Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed, auto update: $autoInstall$(if ($autoUpdateOff) { ' (blocked by AUTO_UPDATE=false)' })$(if ($macroKeys) { ", from host macros: $macroKeys" })"
 if ($logFile) { Stop-Transcript | Out-Null }
 exit 0

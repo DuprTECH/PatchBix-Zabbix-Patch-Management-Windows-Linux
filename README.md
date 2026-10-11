@@ -14,11 +14,11 @@ One Zabbix 7.4 template to see the **update status of all your Windows and Linux
 - 🔁 **Reboot required and why**, last reboot time, uptime
 - 🛠️ **Last update installed** (detected on the host), result of the last install run (Ansible, the check script or your own job)
 - 🗓️ **Maintenance window per host** (`zbx-patch.conf`): for example `3 03:00-05:00` = every Wednesday 03:00–05:00, plus **excluded updates** and **reboot allowed** – shown in Zabbix, used by the install job
-- 🤖 **Optional automatic updates by the check script**: with `AUTO_UPDATE="true"` it installs the updates itself in the maintenance window (once per window), reboots when allowed and reports the result – no other tool needed. Off by default (check only).
+- 🤖 **Optional automatic updates by the check script**: set a **maintenance window with update types** (for example `crit+sec * 02:00-03:00` = critical and security updates every night) and it installs those updates itself in the window (once per window), reboots when allowed and reports the result – no other tool needed. No window = check only (the default).
 - 🖥️ **OS name and version / kernel**, update source and its availability, **how updates are installed automatically** (disabled / OS security only / OS all / patch management), Windows Update service
 - 📊 **Host dashboard** included in the template: tiles, pending updates list, update history, graphs by category and severity, install runs, patch settings
 - 🚨 **Triggers**: critical / security updates pending, reboot required / pending too long, update source unavailable, check failed, install run failed, invalid maintenance window, OS and patch management both installing updates, **no data from a host**
-- 🧰 **Works your way**: the check runs from cron / Task Scheduler (or the Zabbix agent) with zabbix_sender. Updates are installed by the **check script itself** (`AUTO_UPDATE`), by **Ansible** (playbook included) or any other tool – or use **only the reporting** with the setup scripts.
+- 🧰 **Works your way**: the check runs from cron / Task Scheduler (or the Zabbix agent) with zabbix_sender. Updates are installed by the **check script itself** (maintenance window), by **Ansible** (playbook included) or any other tool – or use **only the reporting** with the setup scripts.
 - 🤝 **Support and complete deployment** available – see [Support](#support-deployment--custom-work).
 
 ## How it works
@@ -27,8 +27,8 @@ One Zabbix 7.4 template to see the **update status of all your Windows and Linux
 flowchart LR
     S["cron / Task Scheduler<br/>check every 12 h + after a reboot,<br/>auto update every 15 min"]
     subgraph Host["Windows / Linux host"]
-        CF["zbx-patch.conf<br/>maintenance window, AUTO_UPDATE,<br/>EXCLUDE, REBOOT"]
-        C["Check script<br/>zbx-patch-linux.sh<br/>zbx-patch-windows.ps1<br/><i>AUTO_UPDATE=true: installs the<br/>updates in the maintenance window</i>"]
+        CF["zbx-patch.conf<br/>maintenance window + update types,<br/>EXCLUDE, REBOOT"]
+        C["Check script<br/>zbx-patch-linux.sh<br/>zbx-patch-windows.ps1<br/><i>installs the update types of the<br/>maintenance window in it</i>"]
     end
     Z[("Zabbix server / proxy")]
     D["Host dashboard,<br/>triggers, history"]
@@ -46,9 +46,9 @@ flowchart LR
 ```
 
 1. **Check** (`patch.*` items) – the main path: cron / Task Scheduler runs the check script on the host every few hours and it sends everything with zabbix_sender, including the patch settings of the host (`zbx-patch.conf`).
-2. **Install** (`patch.install.*` items): with `AUTO_UPDATE="true"` the check script itself installs the updates in the maintenance window and sends the result. Optionally the updates can be installed by the Ansible playbook from this repository or by your own update job, which sends the result the same way.
+2. **Install** (`patch.install.*` items): with a maintenance window the check script itself installs the update types of the window in it and sends the result. Optionally the updates can be installed by the Ansible playbook from this repository or by your own update job, which sends the result the same way.
 
-By default the check script **only reports** (`AUTO_UPDATE="false"`), see [Check only](#check-only-reporting) and [Patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot).
+By default the check script **only reports** (no maintenance window), see [Check only](#check-only-reporting) and [Patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot).
 
 ## Contents
 
@@ -87,14 +87,14 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | OS family / name / version | `patch.os`, `patch.os.name`, `patch.os.version` | build with UBR | distribution, running kernel |
 | Check script version | `patch.script.version` | `$ScriptVersion` in the script, for example `26.10.10` | `SCRIPT_VERSION` in the script |
 | Update source / availability | `patch.source`, `patch.source.available` | Windows Update or `WSUS <server>`, search succeeded | package manager, repositories reachable |
-| Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management (`AUTO_UPDATE`), 4 OS + patch management | `patch.autoupdate` | policy `AUOptions 4` or no policy on a client (2); notify / download only, `NoAutoUpdate`, no policy on Windows Server (0); `AUTO_UPDATE` (3) | unattended-upgrades, dnf-automatic, yum-cron (1 / 2), `AUTO_UPDATE` (3) |
+| Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management (maintenance window set), 4 OS + patch management | `patch.autoupdate` | policy `AUOptions 4` or no policy on a client (2); notify / download only, `NoAutoUpdate`, no policy on Windows Server (0); `AUTO_UPDATE` (3) | unattended-upgrades, dnf-automatic, yum-cron (1 / 2), `AUTO_UPDATE` (3) |
 | Automatic updates detail | `patch.autoupdate.detail` | for example `Windows Update: download only, notify to install (AUOptions 3); WSUS http://wsus:8530 (approved updates only)` | for example `unattended-upgrades: security updates only` |
 | Windows Update service startup type | `patch.service.startup` | ✔ | not sent |
 | Last check time / age / duration / result | `patch.check.timestamp`, `.age`, `.duration`, `.result` | ✔ | ✔ |
 | Install run: time, age, status, result, count, failed, list | `patch.install.timestamp`, `.age`, `.status`, `.result`, `.count`, `.failed`, `.list` | install job, Ansible | install job, Ansible |
 | Maintenance window / next window | `patch.maintenance.window`, `patch.maintenance.next` | `zbx-patch.conf` | `zbx-patch.conf` |
-| Auto update by the check script | `patch.autoupdate.config` | `AUTO_UPDATE` in `zbx-patch.conf` | `AUTO_UPDATE` in `zbx-patch.conf` |
-| Config – the settings that are set, `(macro)` = from the host macro | `patch.config.override` | `window: 1-5 03:00-05:00 (macro), auto update: true`; empty = nothing set | the same |
+| Auto update by the check script (maintenance window set) | `patch.autoupdate.config` | ✔ | ✔ |
+| Config – the settings that are set, ✎ = host macro, ▤ = `zbx-patch.conf` | `patch.config.override` | `✎ window: crit+sec * 02:00-03:00, ▤ reboot: false`; empty = nothing set | the same |
 | Host macros delivered by the agent | `patch.config[…]` (agent item) | `OK, written / unchanged: …` or `ERROR: …` | the same |
 | Excluded updates (config) / pending excluded | `patch.exclude`, `patch.updates.excluded` | KB or a part of the title | package names (wildcards) |
 | Reboot allowed | `patch.reboot.allowed` | `zbx-patch.conf` | `zbx-patch.conf` |
@@ -171,7 +171,7 @@ Parameters: `-SenderPath`, `-ConfigPath` (agent config with `Hostname` and `Serv
    ```
    0 */6 * * * root /usr/local/bin/zbx-patch-linux.sh >/dev/null 2>&1
    @reboot root sleep 300; /usr/local/bin/zbx-patch-linux.sh >/dev/null 2>&1
-   # only needed for automatic updates (AUTO_UPDATE="true" in /etc/zabbix/zbx-patch.conf)
+   # only needed for automatic updates (a maintenance window in /etc/zabbix/zbx-patch.conf)
    */15 * * * * root /usr/local/bin/zbx-patch-linux.sh --auto-update >>/var/log/zbx-patch-update.log 2>&1
    ```
 3. Test it: `/usr/local/bin/zbx-patch-linux.sh`
@@ -180,7 +180,7 @@ Environment variables: `ZABBIX_SENDER`, `ZABBIX_CONF`, `ZABBIX_SERVER`, `ZABBIX_
 
 ### Check only (reporting)
 
-The check scripts **by default only read the update status and send it to Zabbix – they don't install or change anything** (on Linux they refresh the package lists, like the system does itself). Updates are installed only when you set `AUTO_UPDATE="true"` in the [patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot). So you can use them on their own:
+The check scripts **by default only read the update status and send it to Zabbix – they don't install or change anything** (on Linux they refresh the package lists, like the system does itself). Updates are installed only when you set a maintenance window in the [patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot). So you can use them on their own:
 
 - if you **only want the reporting**, because updates are installed by another tool (WSUS, SCCM, Intune, AWX, unattended-upgrades, dnf-automatic, …) or by hand,
 - to **run the check more often** than your install job (for example every 4 hours, while patching runs once a month).
@@ -189,7 +189,7 @@ The setup scripts **`scripts/setup-linux.sh`** and **`scripts/setup-windows.ps1`
 
 | Choice | What it does |
 |--------|--------------|
-| **1 monitor** (default) | installs the check script, schedules it every 12 h (shifted by a fixed per-host offset of ±30 min, so the hosts don't run at the same time) and after a reboot, schedules the automatic update (it does nothing until `AUTO_UPDATE="true"`), writes `zbx-patch.conf` (shows the current values and asks whether to keep them), installs the `UserParameter` for the [settings from Zabbix](#settings-from-zabbix-host-macros) and runs the check right away |
+| **1 monitor** (default) | installs the check script, schedules it every 12 h (shifted by a fixed per-host offset of ±30 min, so the hosts don't run at the same time) and after a reboot, schedules the automatic update (it does nothing without a maintenance window), writes `zbx-patch.conf` (shows the current values and asks whether to keep them), installs the `UserParameter` for the [settings from Zabbix](#settings-from-zabbix-host-macros) and runs the check right away |
 | **2 check** | runs the check now and shows the patch settings |
 | **3 update** | installs the updates now – only in the maintenance window, without `EXCLUDE`, reboots when needed and `REBOOT="true"`, result to Zabbix |
 | **4 force** | like 3, also outside the maintenance window |
@@ -225,12 +225,13 @@ ansible-playbook -i inventory.ini ansible/check-windows.yml -e zabbix_check_inte
 Each host can have its own settings in **`zbx-patch.conf`** – Linux `/etc/zabbix/zbx-patch.conf`, Windows `<Zabbix agent folder>\zbx-patch.conf` (the same format on both):
 
 ```bash
-# when updates may be installed and the host rebooted, local time of the host, several separated by commas
+# when and which updates the check script installs itself: "[<types>] <day> <HH:MM>-<HH:MM>", local time
+# of the host, several separated by commas; no window = check only, no automatic updates (default)
+#   types: * = all updates (also without types), crit = critical, sec = security, kernel = kernel packages (Linux),
+#          def = definitions (Windows); several joined with +, for example crit+sec
 #   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
-#   an end lower than the start = the window ends the next day; empty = any time
-MAINTENANCE_WINDOW="3 03:00-05:00"          # every Wednesday 03:00-05:00
-# true = the check script installs the updates itself in the maintenance window; false = check only (default)
-AUTO_UPDATE="false"
+#   an end lower than the start = the window ends the next day
+MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"   # critical + security every night, all on Saturday
 # updates that are not installed, separated by commas
 #   Linux: package names, wildcards allowed; Windows: KB number or a part of the title
 EXCLUDE="kernel*, docker-ce"
@@ -238,11 +239,22 @@ EXCLUDE="kernel*, docker-ce"
 REBOOT="true"
 ```
 
-- The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Auto update (zbx-patch.conf)*, *Excluded updates*, *Reboot allowed*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
-- **Automatic updates** (`AUTO_UPDATE="true"`): the check script is also started every 15 minutes with `--auto-update` / `-AutoUpdate` (cron / task *Zabbix patch auto update*). Outside the window (or with `false`) it exits right away; in an open window it installs the updates once per window (Linux apt / dnf / yum, Windows Update: security, critical, update rollups, definitions, updates), without `EXCLUDE`, sends the result to the `patch.install.*` items, reboots when needed and `REBOOT="true"` and checks again after the reboot. Log: `/var/log/zbx-patch-update.log`, `C:\ProgramData\zbx-patch\update.log`.
-- **Install now by hand**: `zbx-patch-linux.sh --update` / `zbx-patch-windows.ps1 -Update` (only in the window, with `--force` / `-Force` also outside).
-- Your **install job** reads the settings with `zbx-patch-linux.sh --show-config` / `zbx-patch-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_next`, `exclude`, `reboot_allowed` and `auto_update`.
-- **Nothing is set after the installation**: the setup scripts and the Ansible playbooks write `zbx-patch.conf` with the descriptions and the settings **commented out** – the host only reports (no automatic updates). A setting that is commented out is not set and its default applies: any time, `AUTO_UPDATE="false"`, nothing excluded, `REBOOT="true"`. The setup scripts (choice 1 monitor) show the values already in the file and keep them, or ask for new ones (Enter = keep, `-` = not set, `any` = any time), so running them again updates an installed host. Or just edit the file – the next run uses the new values – or set the [host macros](#settings-from-zabbix-host-macros) in Zabbix.
+- The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Auto update (maintenance window)*, *Excluded updates*, *Reboot allowed*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
+- **Automatic updates** (a maintenance window is set): the check script is also started every 15 minutes with `--auto-update` / `-AutoUpdate` (cron / task *Zabbix patch auto update*). Without a window or outside it, it exits right away; in an open window it installs **the update types of the window** once per window, without `EXCLUDE`:
+
+  | Type | Windows | Linux |
+  |------|---------|-------|
+  | `*` / `all` (also no type) | security, critical, update rollups, definitions, updates | everything (apt dist-upgrade, dnf / yum upgrade) |
+  | `crit` | classification *Critical Updates* or MSRC severity *Critical* | dnf / yum: security advisories with severity *Critical*; **apt: nothing** (apt has no severity) |
+  | `sec` | *Security Updates* | security updates (apt security suite, dnf / yum `--security`) |
+  | `kernel` | – | kernel packages |
+  | `def` | definitions (Defender) | – |
+
+  It sends the result to the `patch.install.*` items, sends the result to the `patch.install.*` items, reboots when needed and `REBOOT="true"` and checks again after the reboot. Log: `/var/log/zbx-patch-update.log`, `C:\ProgramData\zbx-patch\update.log`.
+- **Install now by hand**: `zbx-patch-linux.sh --update` / `zbx-patch-windows.ps1 -Update` (only in an open window and its types; `--force` / `-Force` = all updates, also without a window or outside it).
+- **Older installs**: `zbx-patch.conf` of an older install can have `AUTO_UPDATE="false"` next to a window. It **still blocks the automatic updates** (Config shows `auto update: off (AUTO_UPDATE=false)`), so these hosts don't start to install updates by themselves. Remove the line (or answer *n* in the setup, or run the monitor setup playbook with `patch_reset=true`) to use the window. `AUTO_UPDATE="true"` is not needed any more.
+- Your **install job** reads the settings with `zbx-patch-linux.sh --show-config` / `zbx-patch-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_types` (update types of the open window), `maintenance_next`, `exclude`, `reboot_allowed`, `auto_update`, `auto_update_blocked` and `config_summary`.
+- **Nothing is set after the installation**: the setup scripts and the Ansible playbooks write `zbx-patch.conf` with the descriptions and the settings **commented out** – the host only reports (no automatic updates). A setting that is commented out is not set and its default applies: no window (no automatic updates), nothing excluded, `REBOOT="true"`. The setup scripts (choice 1 monitor) show the values already in the file and keep them, or ask for new ones (Enter = keep, `-` = not set), so running them again updates an installed host. Or just edit the file – the next run uses the new values – or set the [host macros](#settings-from-zabbix-host-macros) in Zabbix.
 
 ### Settings from Zabbix (host macros)
 
@@ -250,8 +262,7 @@ The same settings can be set in Zabbix, per host (or in a template linked to a g
 
 | Macro | Overrides | Values |
 |-------|-----------|--------|
-| `{$PATCH.CONF.WINDOW}` | `MAINTENANCE_WINDOW` | `3 03:00-05:00`, `1-5 22:00-04:00, 2.Sat 08:00-12:00`; **`1-7` = every day** (the agent doesn't allow `*`), `any` = any time |
-| `{$PATCH.CONF.AUTO_UPDATE}` | `AUTO_UPDATE` | `true` / `false` |
+| `{$PATCH.CONF.WINDOW}` | `MAINTENANCE_WINDOW` | `all 3 03:00-05:00`, `crit+sec 1-7 02:00-03:00, all 6 03:00-06:00`; **`all` = all update types, `1-7` = every day** (the agent doesn't allow `*`), `none` = no window (no automatic updates) |
 | `{$PATCH.CONF.EXCLUDE}` | `EXCLUDE` | `kernel%, docker-ce` – **`%` = wildcard** (the agent doesn't allow `*`), `none` = nothing excluded |
 | `{$PATCH.CONF.REBOOT}` | `REBOOT` | `true` / `false` |
 
@@ -259,7 +270,7 @@ How it works:
 
 1. The agent item *Patch - Settings from host macros (agent)* (active, every 10 min) has the macros in its key – the Zabbix server puts their values of the host into the key, so the agent gets them.
 2. The `UserParameter` `patch.config` runs the check script with `--zabbix-config` / `-ZabbixConfig`: it validates the values and writes the set (non empty) ones to **`zbx-patch-from-zbx-host-macro.cache`** next to `zbx-patch.conf` – only when they changed. **`zbx-patch.conf` is never changed from Zabbix**; an invalid value writes nothing (the item shows `ERROR: …` and the trigger *Patch settings in the host macros are invalid* fires).
-3. The check script (cron / Task Scheduler) reads `zbx-patch.conf` and then the `.cache` file – **a key from the macros wins**, an empty macro leaves `zbx-patch.conf` in effect. The item *Patch - Config* (`patch.config.override`) and the **Config** column / tile of the dashboards show only the settings that are set – in `zbx-patch.conf` or in the host macros, `(macro)` marks a value from the macro, for example `window: 1-5 03:00-05:00 (macro), auto update: true`. Empty = nothing set, the defaults apply.
+3. The check script (cron / Task Scheduler) reads `zbx-patch.conf` and then the `.cache` file – **a key from the macros wins**, an empty macro leaves `zbx-patch.conf` in effect. The item *Patch - Config* (`patch.config.override`) and the **Config** column / tile of the dashboards show only the settings that are set, ✎ = from the host macro, ▤ = from `zbx-patch.conf`, for example `✎ window: crit+sec * 02:00-03:00, ▤ reboot: false`. Empty = nothing set, the defaults apply (no automatic updates). The check script sends `[S]` / `[C]`, the preprocessing of the item replaces them with the symbols.
 
 The setup scripts and the Ansible playbooks install the `UserParameter` with `zbx-patch-linux.sh --install-agent-config` / `zbx-patch-windows.ps1 -InstallAgentConfig`: a file `zbx-patch-userparameter.conf` in the agent `Include` folder (the main agent config gets an `Include` line only when it has none), the `.cache` file writable by the agent (Linux `root:zabbix 0664`), and a restart of the agent – only when something changed; when the agent doesn't start afterwards, the changes are undone. Without the `UserParameter` the agent item is *not supported* and `zbx-patch.conf` alone applies.
 
@@ -285,7 +296,7 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 | `{$PATCH.REBOOT.MAXAGE}` | `7d` | Alert when a reboot is pending for this time |
 | `{$PATCH.LASTUPDATE.MAXAGE}` | `45d` | Alert when no updates were installed for this time and updates are pending (trigger disabled by default) |
 | `{$PATCH.CHECK.CMD}` | `/usr/local/bin/zbx-patch-linux.sh` | Command of the agent item *Patch - Run update check* |
-| `{$PATCH.CONF.WINDOW}`, `{$PATCH.CONF.AUTO_UPDATE}`, `{$PATCH.CONF.EXCLUDE}`, `{$PATCH.CONF.REBOOT}` | empty | Patch settings from Zabbix, override `zbx-patch.conf` – see [Settings from Zabbix](#settings-from-zabbix-host-macros) |
+| `{$PATCH.CONF.WINDOW}`, `{$PATCH.CONF.EXCLUDE}`, `{$PATCH.CONF.REBOOT}` | empty | Patch settings from Zabbix, override `zbx-patch.conf` – see [Settings from Zabbix](#settings-from-zabbix-host-macros) |
 
 ## Notes
 

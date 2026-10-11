@@ -114,32 +114,47 @@ EOF
             sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*/\1/p" "$CONF" | tail -n 1 | sed 's/[[:space:]]*$//'; }
     UNSET="(not set)"
     win=$(cur MAINTENANCE_WINDOW)  || win=$UNSET
-    [ -z "$win" ] && win=any
-    auto=$(cur AUTO_UPDATE)        || auto=$UNSET
+    [ -z "$win" ] && win=$UNSET
     excl=$(cur EXCLUDE)            || excl=$UNSET
     [ -z "$excl" ] && excl=$UNSET
     reboot=$(cur REBOOT)           || reboot=$UNSET
+    # Legacy AUTO_UPDATE="false" of older installs blocks the automatic updates - kept until it is removed
+    blocked=n
+    case "$(cur AUTO_UPDATE | tr '[:upper:]' '[:lower:]')" in no|false|0|off) blocked=y ;; esac
     keep=n
     if [ -f "$CONF" ]; then
         echo "Patch settings $CONF:"
-        printf '  MAINTENANCE_WINDOW: %s\n  AUTO_UPDATE:        %s\n  EXCLUDE:            %s\n  REBOOT:             %s\n' "$win" "$auto" "$excl" "$reboot"
+        printf '  MAINTENANCE_WINDOW: %s\n  EXCLUDE:            %s\n  REBOOT:             %s\n' "$win" "$excl" "$reboot"
+        [ "$blocked" = y ] && echo '  AUTO_UPDATE="false" (older install): the automatic updates are blocked'
         ask "Keep them? (y/n)" y; keep=$REPLY
     fi
     case "$keep" in
         [Yy]*) ;;
         *)
-            echo "Enter = keep the shown value, - = not set (commented out). Nothing set = check only, no automatic updates."
-            echo "Maintenance window: '<day> <HH:MM>-<HH:MM>', several separated by commas; day 1-7 = Monday-Sunday"
-            echo "  (or Mon..Sun), 1-5, * = every day, 2.3 = 2nd Wednesday; any = any time. Example: 3 03:00-05:00 = Wednesday"
+            echo "Enter = keep the shown value, - = not set (commented out). No maintenance window = check only, no automatic updates."
+            echo "Maintenance window = when and which updates are installed automatically: '[<types>] <day> <HH:MM>-<HH:MM>',"
+            echo "  several separated by commas. Types: * = all (also without types), crit = critical (dnf / yum only),"
+            echo "  sec = security, kernel = kernel packages; several joined with +. Day: 1-7 = Monday-Sunday (or Mon..Sun),"
+            echo "  1-5, * = every day, 2.3 = 2nd Wednesday. Examples: * 3 03:00-05:00 = everything on Wednesday,"
+            echo "  crit+sec * 02:00-03:00 = critical and security updates every night"
             ask "Maintenance window" "$win"; win=$REPLY
-            ask "Automatic updates in the maintenance window (true/false)" "$auto"; auto=$REPLY
+            if [ "$blocked" = y ]; then
+                ask "Keep the automatic updates blocked (AUTO_UPDATE=\"false\")? (y/n)" y
+                case "$REPLY" in [Yy]*) ;; *) blocked=n ;; esac
+            fi
             ask "Excluded packages, comma separated, wildcards allowed" "$excl"; excl=$REPLY
             ask "Reboot after updates when needed (true/false)" "$reboot"; reboot=$REPLY
             ;;
     esac
     # KEY="value" when set, otherwise the commented example
     setting() { case "$2" in "$UNSET"|-|"") echo "#$1=\"$3\"" ;; *) echo "$1=\"$2\"" ;; esac; }
-    [ "$win" = any ] && win_line='MAINTENANCE_WINDOW=""' || win_line=$(setting MAINTENANCE_WINDOW "$win" "3 03:00-05:00")
+    if [ "$blocked" = y ]; then
+        auto_section='
+# Legacy (older install): AUTO_UPDATE="false" blocks the automatic updates in the maintenance window.
+# Remove the line to install the updates in the window.
+AUTO_UPDATE="false"
+'
+    else auto_section=""; fi
     mkdir -p "$(dirname "$CONF")"
     cat > "$CONF" <<EOF
 # zbx-patch.conf - patch management settings of this host
@@ -149,18 +164,17 @@ EOF
 # A setting that is commented out is not set: the default applies (nothing set = check only).
 # The Zabbix host macros {\$PATCH.CONF.*} win over this file (zbx-patch-from-zbx-host-macro.cache).
 #
-# Maintenance window - when updates may be installed and the host rebooted (default: any time).
-#   "<day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
+# Maintenance window - when and which updates the checker installs itself (cron every 15 min, once
+# per window, log /var/log/zbx-patch-update.log). No window = check only, no automatic updates.
+#   "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
+#   types: * = all updates (also without types), crit = critical (dnf / yum severity Critical; apt has no
+#          severity), sec = security, kernel = kernel packages; several joined with +, for example crit+sec
 #   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
 #   an end lower than the start = the window ends the next day (6 22:00-04:00)
-#   empty = any time
-#   MAINTENANCE_WINDOW="3 03:00-05:00"   = every Wednesday 03:00-05:00
-$win_line
-
-# Automatic updates: true = the checker installs the updates itself in the maintenance window
-# (cron every 15 min, once per window, log /var/log/zbx-patch-update.log); false = check only (default)
-$(setting AUTO_UPDATE "$auto" true)
-
+#   MAINTENANCE_WINDOW="* 3 03:00-05:00"                         = all updates every Wednesday 03:00-05:00
+#   MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"  = critical + security every night, all on Saturday
+$(setting MAINTENANCE_WINDOW "$win" "* 3 03:00-05:00")
+$auto_section
 # Updates that are not installed, separated by commas: package names, wildcards allowed (default: none)
 $(setting EXCLUDE "$excl" "kernel*, docker-ce")
 

@@ -17,8 +17,8 @@ zabbix_export:
         - Last update installed (detected on the host) and its patch day, last install run (sent by the install job / Ansible)
         - OS name and version / kernel, update source and its availability, automatic updates, Windows Update service
         - Last check time, age, duration and result
-        - Patch settings of the host (zbx-patch.conf): maintenance window and the next window, automatic updates
-          by the check script (AUTO_UPDATE), excluded updates (and how many pending updates they match), reboot allowed
+        - Patch settings of the host (zbx-patch.conf): maintenance window (when and which update types the
+          check script installs) and the next window, excluded updates (and how many pending updates they match), reboot allowed
         - Host dashboard 'Patch management': overview, categories and severity, installs and history
 
         Data are sent with zabbix_sender (trapper items) by the check scripts zbx-patch-windows.ps1 and zbx-patch-linux.sh,
@@ -232,7 +232,7 @@ zabbix_export:
             1 - OS, security updates only (Linux: unattended-upgrades with the default security origins, dnf-automatic upgrade_type = security, yum-cron update_cmd = security)
             2 - OS, all updates (Linux: unattended-upgrades with the -updates origin, dnf-automatic / yum-cron default;
                 Windows: policy AUOptions 4 "download and install", or no policy on a Windows client; with WSUS only the approved updates)
-            3 - patch management: AUTO_UPDATE="true" in zbx-patch.conf, the check script installs the updates in the maintenance window
+            3 - patch management: a maintenance window is set, the check script installs its update types in it
             4 - OS and patch management both - choose one of them
           valuemap:
             name: 'Automatic updates'
@@ -254,7 +254,7 @@ zabbix_export:
               expression: 'last(/APP Patch management all OS/patch.autoupdate)=4'
               name: 'Updates are installed automatically by the OS and by patch management'
               priority: WARNING
-              description: 'AUTO_UPDATE="true" in zbx-patch.conf and the automatic updates of the OS are both enabled - disable one of them (onboarding disables the OS automatic updates).'
+              description: 'A maintenance window is set (patch management installs the updates) and the automatic updates of the OS are enabled too - disable one of them (onboarding disables the OS automatic updates).'
               tags:
                 - tag: service
                   value: patch-management
@@ -271,7 +271,7 @@ zabbix_export:
             The exact automatic update setting of the host, for example:
             Windows Update: download only, notify to install (AUOptions 3); WSUS http://wsus:8530 (approved updates only)
             unattended-upgrades: security updates only
-            Patch management (AUTO_UPDATE in zbx-patch.conf, window '3 03:00-05:00'); Windows Update: disabled by policy (NoAutoUpdate=1)
+            Patch management (maintenance window 'crit+sec * 02:00-03:00'); Windows Update: disabled by policy (NoAutoUpdate=1)
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
@@ -787,9 +787,10 @@ zabbix_export:
           value_type: CHAR
           trends: '0'
           description: |
-            MAINTENANCE_WINDOW from the patch settings of the host (zbx-patch.conf): when updates may be installed and the host rebooted,
-            for example "3 03:00-05:00" (Wednesday; days 1-7 = Monday-Sunday or Mon..Sun) or "* 03:00-05:00, 2.6 22:00-04:00".
-            "-" = not set (any time). With AUTO_UPDATE="true" the check script installs the updates in this window.
+            MAINTENANCE_WINDOW of the host (zbx-patch.conf or the host macro {$PATCH.CONF.WINDOW}): when and which updates the check
+            script installs itself - "[<types>] <day> <HH:MM>-<HH:MM>", for example "* 3 03:00-05:00" (all updates on Wednesday) or
+            "crit+sec * 02:00-03:00, * 6 03:00-06:00"; types * = all, crit, sec, kernel (Linux), def (Windows), joined with +;
+            days 1-7 = Monday-Sunday or Mon..Sun. "-" = no window: no automatic updates.
             An invalid window is sent with the error in brackets.
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
@@ -844,15 +845,16 @@ zabbix_export:
             - tag: component
               value: maintenance
         - uuid: ad3c2ba3f80541e58cde01e4cc0b6876
-          name: 'Patch - Auto update (zbx-patch.conf)'
+          name: 'Patch - Auto update (maintenance window)'
           type: TRAP
           key: patch.autoupdate.config
           history: 90d
           trends: 365d
           description: |
-            AUTO_UPDATE from the patch settings of the host (zbx-patch.conf):
-            1 - the check script installs the updates itself in the maintenance window (once per window, cron / task every 15 min),
-            0 - check only (default). The result of the install runs goes to the "Patch install" items.
+            Automatic updates by the check script:
+            1 - a maintenance window is set: the check script installs the update types of the window itself in it (once per window,
+                cron / task every 15 min); the result of the install runs goes to the "Patch install" items,
+            0 - no maintenance window (or the legacy AUTO_UPDATE="false" of an older install): check only.
           valuemap:
             name: Enabled
           tags:
@@ -861,27 +863,27 @@ zabbix_export:
         - uuid: 755bc789857b41b2a6389621490d3410
           name: 'Patch - Settings from host macros (agent)'
           type: ZABBIX_ACTIVE
-          key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
+          key: 'patch.config["{$PATCH.CONF.WINDOW}","","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
           delay: 10m
           history: 30d
           value_type: CHAR
           trends: '0'
           timeout: 20s
           description: |
-            Delivers the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}
+            Delivers the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT} (the 2nd key parameter is unused)
             to the host: the agent (UserParameter patch.config, installed by the setup / --install-agent-config) validates them
             and writes the set ones to zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf. Those keys win over
             zbx-patch.conf, which is never changed from Zabbix. Empty macro = zbx-patch.conf stays in effect.
             Value: OK, written / unchanged: <keys>, or ERROR: <reason> (then nothing is written).
-            The agent forbids * " ' $ ; | # and other characters in the values: window 1-7 = every day (instead of *),
-            any = any time; exclude % = wildcard, none = nothing excluded.
+            The agent forbids * " ' $ ; | # and other characters in the values: window type all = all updates and day 1-7 =
+            every day (instead of *), none = no window (no automatic updates); exclude % = wildcard, none = nothing excluded.
             Not supported = the UserParameter is not installed on the host (run the setup again).
           tags:
             - tag: component
               value: maintenance
           triggers:
             - uuid: 219feb389a8c46f6a4bb7eb492b678b1
-              expression: 'find(/APP Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"],,"like","ERROR")=1'
+              expression: 'find(/APP Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"],,"like","ERROR")=1'
               name: 'Patch settings in the host macros are invalid'
               opdata: '{ITEM.LASTVALUE}'
               priority: WARNING
@@ -899,12 +901,21 @@ zabbix_export:
           value_type: TEXT
           trends: '0'
           description: |
-            The patch settings that are set on the host (zbx-patch.conf or the host macros {$PATCH.CONF.*}), for example:
-            window: 1-5 03:00-05:00 (macro), auto update: true
-            (macro) = from the Zabbix host macro (zbx-patch-from-zbx-host-macro.cache, wins over zbx-patch.conf).
-            Empty = nothing set, the defaults apply: check only (no automatic updates), any time, reboot when needed,
-            nothing excluded.
+            The patch settings that are set on the host, each with its source, for example:
+            ✎ window: crit+sec * 02:00-03:00, ▤ reboot: false
+            ✎ = Zabbix host macro {$PATCH.CONF.*} (zbx-patch-from-zbx-host-macro.cache, wins over zbx-patch.conf),
+            ▤ = zbx-patch.conf on the host. Empty = nothing set: no automatic updates, reboot when needed, nothing excluded.
+            The check script sends [S] / [C], the preprocessing replaces them with the symbols (Unicode BMP characters,
+            they work also with a MySQL database in utf8).
           preprocessing:
+            - type: STR_REPLACE
+              parameters:
+                - '[S]'
+                - ✎
+            - type: STR_REPLACE
+              parameters:
+                - '[C]'
+                - ▤
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
                 - 6h
@@ -1477,7 +1488,7 @@ zabbix_export:
                       name: tags.0.value
                       value: 'patch-management'
                 - type: item
-                  name: 'Auto update (config)'
+                  name: 'Auto update (window)'
                   'y': '6'
                   width: '24'
                   height: '3'
@@ -1578,7 +1589,7 @@ zabbix_export:
                       name: thresholds.0.threshold
                       value: '1'
                 - type: item
-                  name: 'Config'
+                  name: 'Config (✎ Zabbix macro, ▤ zbx-patch.conf)'
                   'y': '9'
                   width: '48'
                   height: '3'
@@ -1605,7 +1616,7 @@ zabbix_export:
                       name: itemid.0
                       value:
                         host: 'APP Patch management all OS'
-                        key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
+                        key: 'patch.config["{$PATCH.CONF.WINDOW}","","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -2377,9 +2388,6 @@ zabbix_export:
         - macro: '{$PATCH.CHECK.CMD}'
           value: /usr/local/bin/zbx-patch-linux.sh
           description: 'Command of the item "Patch - Run update check". Override on Windows hosts (see the item description).'
-        - macro: '{$PATCH.CONF.AUTO_UPDATE}'
-          value: ''
-          description: 'Host setting from Zabbix (overrides AUTO_UPDATE of zbx-patch.conf): true = the check script installs the updates in the maintenance window, false = check only. Empty = zbx-patch.conf.'
         - macro: '{$PATCH.CONF.EXCLUDE}'
           value: ''
           description: 'Host setting from Zabbix (overrides EXCLUDE of zbx-patch.conf): updates that are not installed, comma separated (Linux: packages, Windows: KB or a part of the title), % = wildcard (kernel%), none = nothing excluded. Empty = zbx-patch.conf.'
@@ -2388,7 +2396,7 @@ zabbix_export:
           description: 'Host setting from Zabbix (overrides REBOOT of zbx-patch.conf): true = reboot after updates when needed, false = only report it. Empty = zbx-patch.conf.'
         - macro: '{$PATCH.CONF.WINDOW}'
           value: ''
-          description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of zbx-patch.conf): <day> <HH:MM>-<HH:MM>, comma separated; day 1-7 = Mon-Sun (1-7 = every day, * is not allowed by the agent), 1-5, 2.3 = 2nd Wednesday; any = any time. Empty = zbx-patch.conf.'
+          description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of zbx-patch.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun (1-7 = every day), 1-5, 2.3 = 2nd Wednesday. Examples: all 3 03:00-05:00, crit+sec 1-7 02:00-03:00. none = no window (no automatic updates). Empty = zbx-patch.conf.'
         - macro: '{$PATCH.LASTUPDATE.MAXAGE}'
           value: 45d
           description: 'Alert when no updates were installed for this time and updates are pending (trigger disabled by default)'
