@@ -121,7 +121,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11.7'
+$ScriptVersion = '26.10.11.8'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -786,6 +786,34 @@ if ($himds) {
     }
 }
 if ($azDetail) { $autoDetail = "$azDetail; $autoDetail" }
+
+# SCCM / ConfigMgr client (CcmExec): software updates enabled in the client settings
+# (CCM_SoftwareUpdatesClientConfig.Enabled) = SCCM deploys and installs the updates: 7 SCCM, 8 SCCM + patch management.
+# The client with software updates disabled doesn't change the value, it is shown in the detail.
+$ccmDetail = ''
+$ccm = Get-Service -Name 'CcmExec' -ErrorAction SilentlyContinue
+if ($ccm) {
+    $site = $null; $sum = $null
+    try { $site = Get-CimInstance -Namespace 'root\ccm' -ClassName 'SMS_Authority' -ErrorAction Stop | Select-Object -First 1 } catch {}
+    try { $sum = Get-CimInstance -Namespace 'root\ccm\Policy\Machine\ActualConfig' -ClassName 'CCM_SoftwareUpdatesClientConfig' -ErrorAction Stop | Select-Object -First 1 } catch {}
+    $where = @()
+    if ($site.Name) { $where += "site $($site.Name -replace '^SMS:', '')" }
+    if ($site.CurrentManagementPoint) { $where += "MP $($site.CurrentManagementPoint)" }
+    $where = if ($where) { " ($($where -join ', '))" } else { '' }
+    if ($ccm.Status -ne 'Running') {
+        $ccmDetail = "SCCM client$where`: service not running"
+    } elseif ($sum -and $sum.Enabled) {
+        $deployed = @()
+        try { $deployed = @(Get-CimInstance -Namespace 'root\ccm\ClientSDK' -ClassName 'CCM_SoftwareUpdate' -ErrorAction Stop) } catch {}
+        $next = $deployed | Where-Object { $_.Deadline } | Sort-Object Deadline | Select-Object -First 1
+        if ($autoUpdateMode -lt 5) { $autoUpdateMode = if ($autoInstall) { 8 } else { 7 } }
+        $ccmDetail = "SCCM / ConfigMgr$where`: software updates enabled, $($deployed.Count) deployed updates pending" +
+            $(if ($next) { ", next deadline $('{0:yyyy-MM-dd HH:mm}' -f ([datetime]$next.Deadline))" })
+    } else {
+        $ccmDetail = "SCCM client$where`: software updates disabled"
+    }
+}
+if ($ccmDetail) { $autoDetail = "$ccmDetail; $autoDetail" }
 $source = if ($wsus) { "WSUS $wsus" } else { 'Windows Update' }
 
 # ---------------- Send ----------------

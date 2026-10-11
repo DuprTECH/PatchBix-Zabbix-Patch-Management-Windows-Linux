@@ -238,6 +238,11 @@ zabbix_export:
                 extension LinuxOsUpdateExtension / WindowsOsUpdateExtension in the last 35 days; the detail shows the last run
                 (time, classifications, reboot setting, duration, result). Arc with the periodic assessment only doesn't change the value.
             6 - Azure Update Manager and patch management both - choose one of them
+            7 - SCCM / ConfigMgr (Windows): the client runs and software updates are enabled in its client settings
+                (CCM_SoftwareUpdatesClientConfig.Enabled) - SCCM deploys and installs the updates; the detail shows the site,
+                the management point, the deployed updates pending and the next deadline. A client with software updates
+                disabled doesn't change the value.
+            8 - SCCM and patch management both - choose one of them
           valuemap:
             name: 'Automatic updates'
           tags:
@@ -255,11 +260,11 @@ zabbix_export:
                 - tag: scope
                   value: notice
             - uuid: 6bb51f7116b44fad9677ff758062d3a3
-              expression: 'last(/APP Patch management all OS/patch.autoupdate)=4 or last(/APP Patch management all OS/patch.autoupdate)=6'
-              name: 'Updates are installed automatically twice (patch management and the OS or Azure Update Manager)'
+              expression: 'last(/APP Patch management all OS/patch.autoupdate)=4 or last(/APP Patch management all OS/patch.autoupdate)=6 or last(/APP Patch management all OS/patch.autoupdate)=8'
+              name: 'Updates are installed automatically twice (patch management and the OS, Azure Update Manager or SCCM)'
               opdata: '{ITEM.LASTVALUE}'
               priority: WARNING
-              description: 'A maintenance window is set (patch management installs the updates) and the automatic updates of the OS (4) or a scheduled patching of Azure Update Manager (6) are enabled too - disable one of them (onboarding disables the OS automatic updates; the Azure schedule is in the maintenance configuration of the Arc machine).'
+              description: 'A maintenance window is set (patch management installs the updates) and the automatic updates of the OS (4) or a scheduled patching of Azure Update Manager (6) or SCCM software updates (8) are enabled too - disable one of them (onboarding disables the OS automatic updates; the Azure schedule is in the maintenance configuration of the Arc machine, SCCM in the client settings / deployments).'
               tags:
                 - tag: service
                   value: patch-management
@@ -2435,6 +2440,10 @@ zabbix_export:
               newvalue: 'Azure Update Manager'
             - value: '6'
               newvalue: 'Azure + Patch management'
+            - value: '7'
+              newvalue: 'SCCM'
+            - value: '8'
+              newvalue: 'SCCM + Patch management'
         - uuid: edf4ad98a0354869a98a9ce9b7b133a9
           name: Availability
           mappings:
