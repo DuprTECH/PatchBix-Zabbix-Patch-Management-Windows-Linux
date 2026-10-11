@@ -81,7 +81,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.11.6"
+SCRIPT_VERSION="26.10.11.7"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -635,6 +635,43 @@ LASTBOOT=$(awk '/^btime/ {print $2}' /proc/stat)
 # Kernel packages (Debian / Ubuntu linux-image-*, RHEL kernel / kernel-core / kernel-uek ...)
 KERNEL_RE='^(linux-(image|headers|modules|generic|signed|virtual|lowlatency|kernel)|kernel)([-_.].*)?$'
 
+# Azure Arc / Azure Update Manager. Scheduled patching (maintenance configuration) runs the extension
+# Microsoft.SoftwareUpdateManagement.LinuxOsUpdateExtension: its last config/<n>.settings has the run
+# (startTime, classificationsToInclude, maximumDuration, rebootSettings), status/<n>.status the result.
+# A run in the last 35 days = scheduled patching is active (AZURE=1). The periodic assessment only is
+# Microsoft.CPlat.Core.LinuxPatchExtension with assessmentMode AutomaticByPlatform.
+# Sets AZURE (0 / 1) and AZDETAIL (empty = no Arc agent).
+azure_detect() {
+    AZURE=0; AZDETAIL=""
+    local arc ext seq s st cls rb dur start when age inst
+    if systemctl is-active --quiet himdsd 2>/dev/null; then arc="connected"
+    elif [ -d /opt/azcmagent ] || command -v azcmagent >/dev/null 2>&1; then arc="agent not running"
+    else return 0; fi
+    ext=$(ls -d /var/lib/waagent/Microsoft.SoftwareUpdateManagement.LinuxOsUpdateExtension-* 2>/dev/null | sort -V | tail -n 1)
+    seq=$( [ -n "$ext" ] && ls "$ext"/config/ 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)\.settings$/\1/p' | sort -n | tail -n 1)
+    if [ -n "$seq" ]; then
+        s=$(cat "$ext/config/$seq.settings" 2>/dev/null)
+        start=$(printf '%s' "$s" | sed -n 's/.*"startTime":"\([^"]*\)".*/\1/p')
+        cls=$(printf '%s' "$s" | sed -n 's/.*"classificationsToInclude":\[\([^]]*\)\].*/\1/p' | tr -d '"' | sed 's/,/+/g')
+        rb=$(printf '%s' "$s" | sed -n 's/.*"rebootSettings":"\([^"]*\)".*/\1/p')
+        dur=$(printf '%s' "$s" | sed -n 's/.*"maximumDuration":\([0-9][0-9]*\).*/\1/p')
+        st=$(grep -o '"status": "[A-Za-z]*"' "$ext/status/$seq.status" 2>/dev/null | head -n 1 | sed 's/.*: "//; s/"$//')
+        inst=$(sed -n 's/.*installedPatchCount\\": \([0-9][0-9]*\).*/\1/p' "$ext/status/$seq.status" 2>/dev/null | head -n 1)
+        when=$(date -d "$start" '+%Y-%m-%d %H:%M' 2>/dev/null)
+        age=$(( ( $(date +%s) - $(date -d "$start" +%s 2>/dev/null || echo 0) ) / 86400 ))
+        if [ -n "$when" ] && [ "$age" -le 35 ]; then
+            AZURE=1
+            AZDETAIL="Azure Update Manager (Arc $arc): scheduled patching, last run $when (${cls:-all}, reboot ${rb:-?}, ${dur:-?} min, ${st:-?}${inst:+, installed $inst})"
+        else
+            AZDETAIL="Azure Update Manager (Arc $arc): no scheduled run for ${age} days (last ${when:-?})"
+        fi
+    elif grep -qs '"assessmentMode":"AutomaticByPlatform"' /var/lib/waagent/Microsoft.CPlat.Core.LinuxPatchExtension-*/config/*.settings; then
+        AZDETAIL="Azure Arc ($arc): Update Manager periodic assessment only"
+    else
+        AZDETAIL="Azure Arc ($arc)"
+    fi
+}
+
 ALL=0; SECURITY=0; KERNEL=0; HELD=0
 CRITICAL=""; BUGFIX=""; ENHANCEMENT=""          # empty = can't be determined, not sent
 SEV_CRITICAL=""; SEV_IMPORTANT=""; SEV_MODERATE=""; SEV_LOW=""
@@ -860,11 +897,17 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.reboot.required $REBOOT"
     [ -n "$LASTBOOT" ] && echo "- patch.lastboot $LASTBOOT"
     # Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management
-    # (a maintenance window is set - this script installs the updates in it), 4 OS + patch management
+    # (a maintenance window is set - this script installs the updates in it), 4 OS + patch management,
+    # 5 Azure Update Manager (Arc scheduled patching), 6 Azure Update Manager + patch management
     if [ "$AUTO_UPDATE" -eq 1 ]; then
         if [ "$AUTOUPDATE" -gt 0 ]; then AUTOUPDATE=4; else AUTOUPDATE=3; fi
         AUTODETAIL="Patch management (maintenance window '$MAINTENANCE_WINDOW'); $AUTODETAIL"
     fi
+    azure_detect
+    if [ "$AZURE" -eq 1 ]; then
+        if [ "$AUTO_UPDATE" -eq 1 ]; then AUTOUPDATE=6; else AUTOUPDATE=5; fi
+    fi
+    [ -n "$AZDETAIL" ] && AUTODETAIL="$AZDETAIL; $AUTODETAIL"
     echo "- patch.autoupdate $AUTOUPDATE"
     echo "- patch.autoupdate.detail $(q "$AUTODETAIL")"
     echo "- patch.autoupdate.config $AUTO_UPDATE"

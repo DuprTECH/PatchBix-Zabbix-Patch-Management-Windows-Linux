@@ -121,7 +121,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11.6'
+$ScriptVersion = '26.10.11.7'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -746,6 +746,46 @@ if ($autoInstall) {
     $autoUpdateMode = if ($autoUpdateMode -gt 0) { 4 } else { 3 }
     $autoDetail = "Patch management (maintenance window '$maintWindow'); $autoDetail"
 }
+
+# Azure Arc / Azure Update Manager. Scheduled patching (maintenance configuration) runs the extension
+# Microsoft.SoftwareUpdateManagement.WindowsOsUpdateExtension: its last RuntimeSettings\<n>.settings has the run
+# (startTime, classificationsToInclude, maximumDuration, rebootSettings), Status\<n>.status the result. A run in
+# the last 35 days = scheduled patching is active: 5 Azure Update Manager, 6 Azure Update Manager + patch management.
+# The periodic assessment only is Microsoft.CPlat.Core.WindowsPatchExtension with assessmentMode AutomaticByPlatform.
+$azDetail = ''
+$himds = Get-Service -Name 'himds' -ErrorAction SilentlyContinue
+if ($himds) {
+    $arc = if ($himds.Status -eq 'Running') { 'connected' } else { 'agent not running' }
+    $plugins = 'C:\Packages\Plugins'
+    $settings = Get-ChildItem "$plugins\Microsoft.SoftwareUpdateManagement.WindowsOsUpdateExtension\*\RuntimeSettings\*.settings" -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -match '^\d+$' } | Sort-Object { [int]$_.BaseName } | Select-Object -Last 1
+    if ($settings) {
+        $cfg = $null
+        try { $cfg = ((Get-Content $settings.FullName -Raw | ConvertFrom-Json).runtimeSettings[0].handlerSettings.publicSettings.updateConfiguration) } catch {}
+        $when = $null; try { $when = ([datetime]$cfg.startTime).ToLocalTime() } catch {}
+        $statusFile = Join-Path (Join-Path (Split-Path (Split-Path $settings.FullName -Parent) -Parent) 'Status') "$($settings.BaseName).status"
+        $st = ''; $inst = ''
+        if (Test-Path $statusFile) {
+            $raw = Get-Content $statusFile -Raw -ErrorAction SilentlyContinue
+            if ($raw -match '"status"\s*:\s*"([A-Za-z]+)"') { $st = $Matches[1] }
+            if ($raw -match 'installedPatchCount\W*(\d+)') { $inst = $Matches[1] }
+        }
+        if ($when -and ((Get-Date) - $when).TotalDays -le 35) {
+            $cls = if ($cfg.classificationsToInclude) { @($cfg.classificationsToInclude) -join '+' } else { 'all' }
+            $autoUpdateMode = if ($autoInstall) { 6 } else { 5 }
+            $azDetail = "Azure Update Manager (Arc $arc): scheduled patching, last run $('{0:yyyy-MM-dd HH:mm}' -f $when) ($cls, reboot $($cfg.rebootSettings), $($cfg.maximumDuration) min, $(if ($st) { $st } else { '?' })$(if ($inst) { ", installed $inst" }))"
+        } else {
+            $azDetail = "Azure Update Manager (Arc $arc): no scheduled run in the last 35 days (last $(if ($when) { '{0:yyyy-MM-dd HH:mm}' -f $when } else { '?' }))"
+        }
+    } elseif ((Test-Path "$plugins\Microsoft.CPlat.Core.WindowsPatchExtension") -and
+              @(Get-ChildItem "$plugins\Microsoft.CPlat.Core.WindowsPatchExtension\*\RuntimeSettings\*.settings" -ErrorAction SilentlyContinue |
+                Where-Object { (Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue) -match '"assessmentMode"\s*:\s*"AutomaticByPlatform"' }).Count -gt 0) {
+        $azDetail = "Azure Arc ($arc): Update Manager periodic assessment only"
+    } else {
+        $azDetail = "Azure Arc ($arc)"
+    }
+}
+if ($azDetail) { $autoDetail = "$azDetail; $autoDetail" }
 $source = if ($wsus) { "WSUS $wsus" } else { 'Windows Update' }
 
 # ---------------- Send ----------------

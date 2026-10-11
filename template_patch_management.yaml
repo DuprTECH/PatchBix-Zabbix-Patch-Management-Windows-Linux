@@ -234,6 +234,10 @@ zabbix_export:
                 Windows: policy AUOptions 4 "download and install", or no policy on a Windows client; with WSUS only the approved updates)
             3 - patch management: a maintenance window is set, the check script installs its update types in it
             4 - OS and patch management both - choose one of them
+            5 - Azure Update Manager (Azure Arc): scheduled patching (maintenance configuration in Azure) - a scheduled run of the
+                extension LinuxOsUpdateExtension / WindowsOsUpdateExtension in the last 35 days; the detail shows the last run
+                (time, classifications, reboot setting, duration, result). Arc with the periodic assessment only doesn't change the value.
+            6 - Azure Update Manager and patch management both - choose one of them
           valuemap:
             name: 'Automatic updates'
           tags:
@@ -251,10 +255,11 @@ zabbix_export:
                 - tag: scope
                   value: notice
             - uuid: 6bb51f7116b44fad9677ff758062d3a3
-              expression: 'last(/APP Patch management all OS/patch.autoupdate)=4'
-              name: 'Updates are installed automatically by the OS and by patch management'
+              expression: 'last(/APP Patch management all OS/patch.autoupdate)=4 or last(/APP Patch management all OS/patch.autoupdate)=6'
+              name: 'Updates are installed automatically twice (patch management and the OS or Azure Update Manager)'
+              opdata: '{ITEM.LASTVALUE}'
               priority: WARNING
-              description: 'A maintenance window is set (patch management installs the updates) and the automatic updates of the OS are enabled too - disable one of them (onboarding disables the OS automatic updates).'
+              description: 'A maintenance window is set (patch management installs the updates) and the automatic updates of the OS (4) or a scheduled patching of Azure Update Manager (6) are enabled too - disable one of them (onboarding disables the OS automatic updates; the Azure schedule is in the maintenance configuration of the Arc machine).'
               tags:
                 - tag: service
                   value: patch-management
@@ -2426,6 +2431,10 @@ zabbix_export:
               newvalue: 'Patch management'
             - value: '4'
               newvalue: 'OS + Patch management'
+            - value: '5'
+              newvalue: 'Azure Update Manager'
+            - value: '6'
+              newvalue: 'Azure + Patch management'
         - uuid: edf4ad98a0354869a98a9ce9b7b133a9
           name: Availability
           mappings:
