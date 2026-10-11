@@ -34,16 +34,18 @@
 #                     updates (also without types), crit = critical (dnf / yum severity Critical; apt has no
 #                     severity - nothing), sec = security, kernel = kernel packages, def = Windows only,
 #                     several joined with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday.
-#                     No window = no automatic updates (only --update --force installs).
+#                     The automatic updates need a window and AUTO_UPDATE="true".
 #   EXCLUDE="kernel*, docker-ce"           packages that are not updated (wildcards allowed)
 #   REBOOT="true"                          reboot after updates when needed (false = report only)
-#   AUTO_UPDATE="false"                    legacy (older installs): blocks the automatic updates
+#   AUTO_UPDATE="true"                     the automatic updates in the window on (default false: the
+#                                          windows can be set first and turned on later, host by host)
 # They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
 # patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with --show-config.
 # patch.autoupdate (0 disabled, 1 OS security only, 2 OS all, 3 patch management = a maintenance window
-# is set, 4 both) and patch.autoupdate.detail tell how updates are installed automatically.
+# and AUTO_UPDATE="true", 4 both, 5 / 6 Azure Update Manager, 7 / 8 SCCM) and patch.autoupdate.detail tell how updates are installed automatically.
 #
-# Settings from Zabbix (host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}):
+# Settings from Zabbix (host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE},
+# {$PATCH.CONF.REBOOT}):
 # the agent item patch.config (UserParameter, installed by --install-agent-config) writes the set ones to
 # zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf (PATCH_CONF_MACRO). Its keys win over
 # zbx-patch.conf, which is never changed from Zabbix.
@@ -58,10 +60,10 @@
 #   --update        install the updates now (apt / dnf / yum, without EXCLUDE), only in an open
 #                   maintenance window and only its types (--force: all updates, also outside), send the result to Zabbix
 #                   (patch.install.*), reboot when needed and REBOOT="true", then check
-#   --auto-update   for cron (every 15 min): in an open maintenance window does --update once per
-#                   window (its update types), otherwise exits right away
+#   --auto-update   for cron (every 15 min): with AUTO_UPDATE="true", in an open maintenance window does
+#                   --update once per window (its update types), otherwise exits right away
 #                   (log: /var/log/zbx-patch-update.log via cron)
-#   --zabbix-config "<window>|<unused>|<exclude>|<reboot>"
+#   --zabbix-config "<window>|<auto update>|<exclude>|<reboot>"
 #                   for the agent (UserParameter patch.config): validate the macro values and write
 #                   the macro file (only when changed); prints OK / ERROR for the item
 #   --send-config   send only the patch settings to Zabbix (run by --zabbix-config in the background
@@ -81,7 +83,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.11.9"
+SCRIPT_VERSION="26.10.11.10"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -176,13 +178,13 @@ MAINTENANCE_WINDOW=$(trim "$(conf_get MAINTENANCE_WINDOW)")
 EXCLUDE=$(trim "$(conf_get EXCLUDE)")
 REBOOT_ALLOWED=1
 case "$(trim "$(conf_get REBOOT)" | tr '[:upper:]' '[:lower:]')" in no|false|0|off) REBOOT_ALLOWED=0 ;; esac
-# Automatic updates: on when a maintenance window is set - the check script installs the update types
-# of the window in it (--auto-update). Legacy AUTO_UPDATE="false" (zbx-patch.conf of older installs)
-# still blocks them, AUTO_UPDATE="true" is not needed any more.
-AUTO_UPDATE_OFF=0
-case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in no|false|0|off) AUTO_UPDATE_OFF=1 ;; esac
+# Automatic updates: the check script installs the update types of the maintenance window itself in it
+# (--auto-update) only with a window and AUTO_UPDATE="true" (default false) - the windows can be set first
+# and the automatic updates turned on later, host by host
+AUTO_UPDATE_ON=0
+case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|true|1|on) AUTO_UPDATE_ON=1 ;; esac
 AUTO_UPDATE=0
-[ -n "$MAINTENANCE_WINDOW" ] && [ "$AUTO_UPDATE_OFF" -eq 0 ] && AUTO_UPDATE=1
+[ -n "$MAINTENANCE_WINDOW" ] && [ "$AUTO_UPDATE_ON" -eq 1 ] && AUTO_UPDATE=1
 # Keys set by the host macros
 MACRO_KEYS=$( [ -r "$PATCH_CONF_MACRO" ] && sed -n -E 's/^[[:space:]]*([A-Z_]+)[[:space:]]*=.*/\1/p' "$PATCH_CONF_MACRO" \
     | sort -u | paste -sd, - | sed 's/,/, /g')
@@ -202,7 +204,7 @@ conf_add() {
     CONFIG_SUMMARY+="${CONFIG_SUMMARY:+, }[$s] $2: $3"
 }
 conf_add MAINTENANCE_WINDOW window "${MAINTENANCE_WINDOW:-none (no automatic updates)}"
-[ "$AUTO_UPDATE_OFF" -eq 1 ] && conf_add AUTO_UPDATE "auto update" "off (AUTO_UPDATE=false)"
+conf_add AUTO_UPDATE "auto update" "$( [ "$AUTO_UPDATE_ON" -eq 1 ] && echo true || echo false)$( [ "$AUTO_UPDATE_ON" -eq 1 ] && [ -z "$MAINTENANCE_WINDOW" ] && echo ' (no window - nothing is installed)')"
 conf_add EXCLUDE exclude "${EXCLUDE:--}"
 conf_add REBOOT reboot "$( [ "$REBOOT_ALLOWED" -eq 1 ] && echo true || echo false)"
 
@@ -325,23 +327,30 @@ tf() { [ "$1" -eq 1 ] && echo true || echo false; }
 
 # ---------------- Settings from the Zabbix host macros (--zabbix-config) ----------------
 # Run by the Zabbix agent (UserParameter patch.config, as the user zabbix) with the values of the
-# macros {$PATCH.CONF.WINDOW}|(unused)|{$PATCH.CONF.EXCLUDE}|{$PATCH.CONF.REBOOT} (the 2nd value was AUTO_UPDATE,
-# it is ignored - the maintenance window turns the automatic updates on).
+# macros {$PATCH.CONF.WINDOW}|{$PATCH.CONF.AUTO_UPDATE}|{$PATCH.CONF.EXCLUDE}|{$PATCH.CONF.REBOOT}.
 # Writes the set (non empty) ones to PATCH_CONF_MACRO, only when they changed; zbx-patch.conf is
 # never changed. Invalid values: nothing is written, the item gets "ERROR: ...".
 # The agent forbids * " ' $ ; | # and other characters in the values (UnsafeUserParameters=0), so:
 #   window: all = all update types and 1-7 = every day (instead of *), "none" = no window (no automatic
 #   updates); exclude: % = wildcard, "none" = nothing
 zabbix_config() {
-    local w e r extra content keys=() lines=()
-    IFS='|' read -r w _ e r extra <<< "$1"
-    w=$(trim "$w"); e=$(trim "$e"); r=$(trim "$r")
+    local w a e r extra content keys=() lines=()
+    IFS='|' read -r w a e r extra <<< "$1"
+    w=$(trim "$w"); a=$(trim "$a"); e=$(trim "$e"); r=$(trim "$r")
     if [ -n "$w" ]; then
         case "${w,,}" in none|any) w="" ;; esac
         if ! [[ $w =~ ^[0-9A-Za-z\ .,:+-]*$ ]]; then echo "ERROR: invalid {\$PATCH.CONF.WINDOW} '$w'"; return; fi
         MAINTENANCE_WINDOW=$w; maint_eval
         if [ -n "$MAINT_ERROR" ]; then echo "ERROR: {\$PATCH.CONF.WINDOW}: $MAINT_ERROR"; return; fi
         keys+=(MAINTENANCE_WINDOW); lines+=("MAINTENANCE_WINDOW=\"$w\"")
+    fi
+    if [ -n "$a" ]; then
+        case "${a,,}" in
+            yes|true|1|on)  a=true ;;
+            no|false|0|off) a=false ;;
+            *) echo "ERROR: invalid {\$PATCH.CONF.AUTO_UPDATE} '$a' (true / false)"; return ;;
+        esac
+        keys+=(AUTO_UPDATE); lines+=("AUTO_UPDATE=\"$a\"")
     fi
     if [ -n "$e" ]; then
         [ "${e,,}" = none ] && e=""
@@ -458,8 +467,8 @@ if [ "$MODE" = show ]; then
         "$(q "$MAINTENANCE_WINDOW")" "$(tf "$MAINT_ACTIVE")"
     printf '"maintenance_next": %s, "maintenance_error": %s, "exclude": [' "${MAINT_NEXT:-null}" "$(q "$MAINT_ERROR")"
     sep=""; for p in "${EXCL[@]}"; do printf '%s%s' "$sep" "$(q "$p")"; sep=", "; done
-    printf '], "reboot_allowed": %s, "auto_update": %s, "auto_update_blocked": %s, "maintenance_types": %s, "macro_config": %s, "macro_keys": %s, "config_summary": %s}\n' \
-        "$(tf "$REBOOT_ALLOWED")" "$(tf "$AUTO_UPDATE")" "$(tf "$AUTO_UPDATE_OFF")" "$(q "$MAINT_TYPES")" \
+    printf '], "reboot_allowed": %s, "auto_update": %s, "auto_update_set": %s, "maintenance_types": %s, "macro_config": %s, "macro_keys": %s, "config_summary": %s}\n' \
+        "$(tf "$REBOOT_ALLOWED")" "$(tf "$AUTO_UPDATE")" "$(tf "$AUTO_UPDATE_ON")" "$(q "$MAINT_TYPES")" \
         "$(q "$PATCH_CONF_MACRO")" "$(q "$MACRO_KEYS")" "$(q "$CONFIG_SUMMARY")"
     exit 0
 fi
@@ -947,5 +956,5 @@ send -k patch.history -o "$HISTORY"
 [ "$CHECK_OK" -eq 1 ] && send -k patch.updates.list -o "$LIST"
 
 echo "$OS_NAME: pending $ALL (security $SECURITY, critical ${CRITICAL:-n/a}, kernel $KERNEL, excluded $EXCLUDED), reboot required: $REBOOT, result: $RESULT"
-echo "Maintenance window: ${MAINTENANCE_WINDOW:--}${MAINT_NEXT:+ (next $(date -d "@$MAINT_NEXT" '+%Y-%m-%d %H:%M'))}, exclude: ${EXCLUDE:--}, reboot allowed: $REBOOT_ALLOWED, auto update: $AUTO_UPDATE$( [ "$AUTO_UPDATE_OFF" -eq 1 ] && echo " (blocked by AUTO_UPDATE=false)")${MACRO_KEYS:+, from host macros: $MACRO_KEYS}"
+echo "Maintenance window: ${MAINTENANCE_WINDOW:--}${MAINT_NEXT:+ (next $(date -d "@$MAINT_NEXT" '+%Y-%m-%d %H:%M'))}, exclude: ${EXCLUDE:--}, reboot allowed: $REBOOT_ALLOWED, auto update: $AUTO_UPDATE${MACRO_KEYS:+, from host macros: $MACRO_KEYS}"
 exit 0

@@ -50,10 +50,11 @@
                     updates (also without types), crit = critical (classification Critical Updates or MSRC
                     severity Critical), sec = security, def = definitions, kernel = Linux only, several joined
                     with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday.
-                    No window = no automatic updates (only -Update -Force installs).
+                    The automatic updates need a window and AUTO_UPDATE="true".
       EXCLUDE="KB5034441, Preview"              updates that are not installed (KB number or a part of the title)
       REBOOT="true"                             reboot after updates when needed (false = report only)
-      AUTO_UPDATE="false"                       legacy (older installs): blocks the automatic updates
+      AUTO_UPDATE="true"                        the automatic updates in the window on (default false: the
+                                                windows can be set first and turned on later, host by host)
     They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
     patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with -ShowConfig.
 
@@ -75,13 +76,13 @@
     With -Update: install all updates, also outside a maintenance window.
 
 .PARAMETER ZabbixConfig
-    For the Zabbix agent (UserParameter patch.config): "<window>|<unused>|<exclude>|<reboot>", the
-    values of the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}. The set (non empty) ones are validated and written to
+    For the Zabbix agent (UserParameter patch.config): "<window>|<auto update>|<exclude>|<reboot>", the
+    values of the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}. The set (non empty) ones are validated and written to
     zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf (only when they changed); its keys win over
     zbx-patch.conf, which is never changed from Zabbix. Prints OK / ERROR for the item.
     The agent forbids * " ' $ ; | # and other characters in the values, so: window all = all update types
     and 1-7 = every day (instead of *), "none" = no window (no automatic updates); exclude % = wildcard,
-    "none" = nothing excluded. The 2nd value (was AUTO_UPDATE) is ignored.
+    "none" = nothing excluded.
 
 .PARAMETER SendConfig
     Send only the patch settings to Zabbix (started by -ZabbixConfig in the background after a change of
@@ -121,7 +122,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11.9'
+$ScriptVersion = '26.10.11.10'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -216,11 +217,11 @@ $maintWindow   = "$($conf['MAINTENANCE_WINDOW'])"
 $excludeText   = "$($conf['EXCLUDE'])"
 $exclude       = @($excludeText -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $rebootAllowed = if ("$($conf['REBOOT'])" -match '^(no|false|0|off)$') { 0 } else { 1 }
-# Automatic updates: on when a maintenance window is set - the script installs the update types of the
-# window in it (-AutoUpdate task). Legacy AUTO_UPDATE="false" (zbx-patch.conf of older installs) still
-# blocks them, AUTO_UPDATE="true" is not needed any more.
-$autoUpdateOff = "$($conf['AUTO_UPDATE'])" -match '^(no|false|0|off)$'
-$autoInstall   = if ($maintWindow -and -not $autoUpdateOff) { 1 } else { 0 }
+# Automatic updates: the script installs the update types of the maintenance window itself in it (-AutoUpdate
+# task) only with a window and AUTO_UPDATE="true" (default false) - the windows can be set first and the
+# automatic updates turned on later, host by host
+$autoUpdateOn  = "$($conf['AUTO_UPDATE'])" -match '^(yes|true|1|on)$'
+$autoInstall   = if ($maintWindow -and $autoUpdateOn) { 1 } else { 0 }
 
 # The settings that are set, each with its source: [S] = Zabbix host macro, [C] = zbx-patch.conf (the item
 # preprocessing shows them as symbols); empty = nothing set - no automatic updates
@@ -228,7 +229,7 @@ $autoInstall   = if ($maintWindow -and -not $autoUpdateOff) { 1 } else { 0 }
 $configParts = @()
 foreach ($s in @(
         @('MAINTENANCE_WINDOW', 'window', $(if ($maintWindow) { $maintWindow } else { 'none (no automatic updates)' })),
-        @('AUTO_UPDATE', 'auto update', $(if ($autoUpdateOff) { 'off (AUTO_UPDATE=false)' } else { '' })),
+        @('AUTO_UPDATE', 'auto update', $(if ($autoUpdateOn) { 'true' + $(if (-not $maintWindow) { ' (no window - nothing is installed)' }) } else { 'false' })),
         @('EXCLUDE', 'exclude', $(if ($excludeText) { $excludeText } else { '-' })),
         @('REBOOT', 'reboot', $(if ($rebootAllowed) { 'true' } else { 'false' })))) {
     if (-not $s[2]) { continue }
@@ -318,8 +319,7 @@ function Get-Maintenance([string]$Spec) {
 # Run by the Zabbix agent (UserParameter patch.config). Invalid values: nothing is written, "ERROR: ..."
 function Set-MacroConfig([string]$Values) {
     $f = @($Values -split '\|') + @('', '', '', '')
-    # the 2nd value was AUTO_UPDATE - ignored, the maintenance window turns the automatic updates on
-    $w = $f[0].Trim(); $e = $f[2].Trim(); $r = $f[3].Trim()
+    $w = $f[0].Trim(); $a = $f[1].Trim(); $e = $f[2].Trim(); $r = $f[3].Trim()
     $keys = @(); $lines = @()
     if ($w) {
         if ($w -in 'none', 'any') { $w = '' }
@@ -327,6 +327,12 @@ function Set-MacroConfig([string]$Values) {
         $err = (Get-Maintenance $w).error
         if ($err) { return "ERROR: {`$PATCH.CONF.WINDOW}: $err" }
         $keys += 'MAINTENANCE_WINDOW'; $lines += "MAINTENANCE_WINDOW=`"$w`""
+    }
+    if ($a) {
+        if ($a -match '^(yes|true|1|on)$') { $a = 'true' }
+        elseif ($a -match '^(no|false|0|off)$') { $a = 'false' }
+        else { return "ERROR: invalid {`$PATCH.CONF.AUTO_UPDATE} '$a' (true / false)" }
+        $keys += 'AUTO_UPDATE'; $lines += "AUTO_UPDATE=`"$a`""
     }
     if ($e) {
         if ($e -eq 'none') { $e = '' }
@@ -464,7 +470,7 @@ if ($ShowConfig) {
         exclude            = $exclude
         reboot_allowed     = [bool]$rebootAllowed
         auto_update        = [bool]$autoInstall
-        auto_update_blocked = [bool]$autoUpdateOff
+        auto_update_set    = [bool]$autoUpdateOn
         maintenance_types  = $maint.types
         macro_config       = $PatchConfigMacro
         macro_keys         = $macroKeys
@@ -707,7 +713,7 @@ switch ($svc.Start) {
     4 { $startup = 3 }
 }
 # Automatic updates: 0 disabled (nothing is installed automatically), 2 OS installs all updates,
-# 3 patch management (AUTO_UPDATE="true" in zbx-patch.conf - this script installs the updates),
+# 3 patch management (a maintenance window and AUTO_UPDATE="true" - this script installs the updates),
 # 4 OS + patch management. 1 (OS security only) is used on Linux only.
 # The policy (GPO / registry): NoAutoUpdate, AUOptions 2 notify, 3 download only, 4 download and install,
 # 5 local admin chooses, 7 download only and notify (Server 2016+). Without a policy: Windows client installs
@@ -870,6 +876,6 @@ if ($searchOk) {
 
 Write-Output "Pending updates: $($counts.all) (critical $($counts.critical), security $($counts.security), excluded $excluded), reboot required: $rebootRequired, result: $result"
 $nextText = if ($maint.next) { " (next {0:yyyy-MM-dd HH:mm})" -f $maint.next } else { "" }
-Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed, auto update: $autoInstall$(if ($autoUpdateOff) { ' (blocked by AUTO_UPDATE=false)' })$(if ($macroKeys) { ", from host macros: $macroKeys" })"
+Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed, auto update: $autoInstall$(if ($macroKeys) { ", from host macros: $macroKeys" })"
 if ($logFile) { Stop-Transcript | Out-Null }
 exit 0

@@ -134,24 +134,22 @@ function Install-Monitor {
     $win  = if ($cur.ContainsKey('MAINTENANCE_WINDOW') -and $cur['MAINTENANCE_WINDOW']) { $cur['MAINTENANCE_WINDOW'] } else { $unset }
     $ex   = if ($cur.ContainsKey('EXCLUDE') -and $cur['EXCLUDE']) { $cur['EXCLUDE'] } else { $unset }
     $rb   = if ($cur.ContainsKey('REBOOT')) { $cur['REBOOT'] } else { $unset }
-    # Legacy AUTO_UPDATE="false" of older installs blocks the automatic updates - kept until it is removed
-    $blocked = "$($cur['AUTO_UPDATE'])" -match '^(no|false|0|off)$'
+    $auto = if ($cur.ContainsKey('AUTO_UPDATE')) { $cur['AUTO_UPDATE'] } else { $unset }
     $keep = 'n'
     if (Test-Path $PatchConf) {
         Write-Host "Patch settings ${PatchConf}:"
-        Write-Host "  MAINTENANCE_WINDOW: $win`n  EXCLUDE:            $ex`n  REBOOT:             $rb"
-        if ($blocked) { Write-Host '  AUTO_UPDATE="false" (older install): the automatic updates are blocked' }
+        Write-Host "  MAINTENANCE_WINDOW: $win`n  AUTO_UPDATE:        $auto`n  EXCLUDE:            $ex`n  REBOOT:             $rb"
         $keep = Ask 'Keep them? (y/n)' 'y'
     }
     if ($keep -notmatch '^[Yy]') {
-        Write-Host 'Enter = keep the shown value, - = not set (commented out). No maintenance window = check only, no automatic updates.'
+        Write-Host 'Enter = keep the shown value, - = not set (commented out). Automatic updates need a window and AUTO_UPDATE=true.'
         Write-Host "Maintenance window = when and which updates are installed automatically: '[<types>] <day> <HH:MM>-<HH:MM>',"
         Write-Host '  several separated by commas. Types: * = all (also without types), crit = critical (Critical Updates or'
         Write-Host '  MSRC severity Critical), sec = security, def = definitions; several joined with +. Day: 1-7 = Monday-Sunday'
         Write-Host '  (or Mon..Sun), 1-5, * = every day, 2.3 = 2nd Wednesday. Examples: * 3 03:00-05:00 = everything on Wednesday,'
         Write-Host '  crit+sec * 02:00-03:00 = critical and security updates every night'
         $win  = Ask 'Maintenance window' $win
-        if ($blocked -and (Ask 'Keep the automatic updates blocked (AUTO_UPDATE="false")? (y/n)' 'y') -notmatch '^[Yy]') { $blocked = $false }
+        $auto = Ask 'Automatic updates in the window (true/false, not set = false)' $auto
         $ex   = Ask 'Excluded updates, comma separated: KB number or a part of the title' $ex
         $rb   = Ask 'Reboot after updates when needed (true/false)' $rb
     }
@@ -159,9 +157,6 @@ function Install-Monitor {
     function Setting([string]$Key, [string]$Value, [string]$Example) {
         if ($Value -in $unset, '-', '') { "#$Key=`"$Example`"" } else { "$Key=`"$Value`"" }
     }
-    $autoSection = if ($blocked) {
-        "#`r`n# Legacy (older install): AUTO_UPDATE=`"false`" blocks the automatic updates in the maintenance window.`r`n# Remove the line to install the updates in the window.`r`nAUTO_UPDATE=`"false`""
-    } else { '' }
     @"
 # zbx-patch.conf - patch management settings of this host
 # Read by the checker zbx-patch-windows.ps1 (sent to Zabbix, template 'APP Patch management all OS')
@@ -170,8 +165,7 @@ function Install-Monitor {
 # A setting that is commented out is not set: the default applies (nothing set = check only).
 # The Zabbix host macros {`$PATCH.CONF.*} win over this file (zbx-patch-from-zbx-host-macro.cache).
 #
-# Maintenance window - when and which updates the checker installs itself (task "Zabbix patch auto update"
-# every 15 min, once per window, log C:\ProgramData\zbx-patch\update.log). No window = check only.
+# Maintenance window - when and which updates the checker installs itself (with AUTO_UPDATE="true").
 #   "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
 #   types: * = all updates (also without types), crit = critical (classification Critical Updates or MSRC
 #          severity Critical), sec = security, def = definitions; several joined with +, for example crit+sec
@@ -180,7 +174,11 @@ function Install-Monitor {
 #   MAINTENANCE_WINDOW="* 3 03:00-05:00"                         = all updates every Wednesday 03:00-05:00
 #   MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"  = critical + security every night, all on Saturday
 $(Setting 'MAINTENANCE_WINDOW' $win '* 3 03:00-05:00')
-$autoSection
+#
+# Automatic updates: true = the checker installs the update types of the window itself in it (task "Zabbix
+# patch auto update" every 15 min, once per window, log C:\ProgramData\zbx-patch\update.log); false = check
+# only (default) - the windows can be set first and the automatic updates turned on later
+$(Setting 'AUTO_UPDATE' $auto 'true')
 #
 # Updates that are not installed, separated by commas: KB number or a part of the title (default: none)
 $(Setting 'EXCLUDE' $ex 'KB5034441, Preview')
