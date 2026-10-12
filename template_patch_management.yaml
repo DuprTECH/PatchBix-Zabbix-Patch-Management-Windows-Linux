@@ -10,6 +10,10 @@ zabbix_export:
       description: |
         OS independent patch management monitoring for Windows and Linux: one template, the same keys (patch.*) on all hosts,
         so dashboards, triggers and reports work the same for every OS.
+        Update management fully controlled from Zabbix, no extra port: the host macros {$PATCH.CONF.WINDOW} (maintenance
+        window and update types), {$PATCH.CONF.AUTO_UPDATE} (automatic updates on / off), {$PATCH.CONF.EXCLUDE} (excluded
+        updates) and {$PATCH.CONF.REBOOT} (reboot allowed) are delivered by the Zabbix agent; the check script installs the
+        updates in the window and reports back over the existing agent / zabbix_sender connection to the server or proxy.
         - Pending updates: all, security, critical, bugfix, enhancement, kernel, held / hidden, severity (critical / important / moderate / low)
         - OS specific categories: definition, service packs, update rollups, drivers, upgrades (Windows), kernel (Linux); 0 on the other OS
         - Pending updates list and recent update history (log of installed / upgraded / removed updates)

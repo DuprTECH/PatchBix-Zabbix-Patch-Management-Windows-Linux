@@ -2,12 +2,17 @@
 
 One Zabbix 7.4 template to see the **update status of all your Windows and Linux servers in one place**, with the **same keys on every OS**: how many updates are pending (security, critical, by severity, kernel, …), which ones, what was installed recently, whether a reboot is needed, when the host was last patched and with what result.
 
+> **Update management fully controlled from Zabbix – no extra ports, no extra agent.**
+> Everything goes over the existing **Zabbix agent communication** (the agent's active checks and zabbix_sender to the Zabbix server / proxy, port 10051 – the same connection the agent already uses). There is no inbound port to open on the hosts and no other management server or agent to install.
+> From Zabbix you **see** the update status of every host and **manage** the updates with host macros: the **maintenance window and the update types** (`{$PATCH.CONF.WINDOW}`, for example `crit+sec Wed 03:30-05:30`), **turning the automatic updates on / off** (`{$PATCH.CONF.AUTO_UPDATE}`), **excluded updates** (`{$PATCH.CONF.EXCLUDE}`) and **reboot allowed** (`{$PATCH.CONF.REBOOT}`) – per host, per template or globally. The check script on the host installs the updates itself in the window and reports the result back to Zabbix.
+
 ![Host dashboard included in the template (sample data)](images/host_dashboard_1.png)
 
 *Host dashboard **Patch management**, included in the template (sample data). More screenshots, including the global dashboard of all hosts, are in [Dashboards](#dashboards).*
 
 ## ✨ Highlights
 
+- 🎛️ **Fully managed from Zabbix**: maintenance window and update types, automatic updates on / off, excluded updates and reboot – set as host macros in Zabbix, applied by the agent on the host within ~5 minutes. **No extra port** – it uses only the existing Zabbix agent / zabbix_sender communication to the Zabbix server or proxy.
 - 🪟🐧 **One template for Windows and Linux**: Windows Update, apt (Debian, Ubuntu), dnf / yum (RHEL, Rocky, Alma, Oracle, Fedora). The same keys (`patch.*`), so dashboards, triggers and reports work the same for every OS.
 - 📋 **Pending updates** by category (security, critical, bugfix, enhancement, kernel, definition, drivers, …) and **severity** (critical / important / moderate / low), plus the **list of pending updates**
 - 📜 **Update history** like a log: what was installed / upgraded / removed and when (Windows Update history, apt history, rpm)
