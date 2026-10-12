@@ -122,7 +122,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.12'
+$ScriptVersion = '26.10.12.1'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -192,6 +192,8 @@ if (-not $PatchConfig) {
 # Settings from the Zabbix host macros {$PATCH.CONF.*}, written by the agent (-ZabbixConfig);
 # a key set there wins over zbx-patch.conf
 $PatchConfigMacro = Join-Path (Split-Path $PatchConfig -Parent) 'zbx-patch-from-zbx-host-macro.cache'
+# How the host updates without the patch settings (OS, Azure Update Manager, SCCM), saved by the full check
+$AutoStatePath = Join-Path (Split-Path $PatchConfig -Parent) 'zbx-patch-autoupdate.cache'
 
 # KEY="value" (also 'value' or value # comment); the last one wins, the macro file last
 function Read-PatchConf([string]$Path) {
@@ -368,6 +370,22 @@ function Set-MacroConfig([string]$Values) {
 }
 if ($PSBoundParameters.ContainsKey('ZabbixConfig')) { Set-MacroConfig $ZabbixConfig; exit 0 }
 
+# patch.autoupdate and its detail from the base (OS mode 0-2, Azure scheduled patching, SCCM software updates)
+# and the patch settings: 0 disabled, 1 OS security, 2 OS all, 3 patch management, 4 OS + patch management,
+# 5 Azure Update Manager, 6 Azure + patch management, 7 SCCM, 8 SCCM + patch management
+function Get-AutoUpdate($base) {
+    $mode = [int]$base.os; $detail = $base.osDetail
+    if ($autoInstall) {
+        $mode = if ($mode -gt 0) { 4 } else { 3 }
+        $detail = "Patch management (maintenance window '$maintWindow'); $detail"
+    }
+    if ($base.azure) { $mode = if ($autoInstall) { 6 } else { 5 } }
+    if ($base.azDetail) { $detail = "$($base.azDetail); $detail" }
+    if ($base.sccm -and $mode -lt 5) { $mode = if ($autoInstall) { 8 } else { 7 } }
+    if ($base.ccmDetail) { $detail = "$($base.ccmDetail); $detail" }
+    $mode, $detail
+}
+
 # -SendConfig: only the patch settings (after a change of the host macros, by -ZabbixConfig)
 if ($SendConfig) {
     if (-not (Test-Path $SenderPath) -and $ConfigPath) { $SenderPath = Join-Path (Split-Path $ConfigPath -Parent) 'zabbix_sender.exe' }
@@ -380,6 +398,13 @@ if ($SendConfig) {
         "- patch.exclude $(Q $(if ($excludeText.Trim()) { $excludeText.Trim() } else { '-' }))"
     )
     if ($m.next) { $lines += "- patch.maintenance.next $(ConvertTo-Epoch $m.next)" }
+    # Automatic updates with the new settings (the base from the last full check)
+    if (Test-Path $AutoStatePath) {
+        try {
+            $mode, $detail = Get-AutoUpdate (Get-Content $AutoStatePath -Raw | ConvertFrom-Json)
+            $lines += "- patch.autoupdate $mode", "- patch.autoupdate.detail $(Q $detail)"
+        } catch {}
+    }
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
         [System.IO.File]::WriteAllLines($tmp, [string[]]$lines, (New-Object System.Text.UTF8Encoding $false))
@@ -750,10 +775,7 @@ if ($startup -eq 3) {
 }
 $autoDetail = "Windows Update: $autoDetail"
 if ($wsus) { $autoDetail += "; WSUS $wsus (approved updates only)" }
-if ($autoInstall) {
-    $autoUpdateMode = if ($autoUpdateMode -gt 0) { 4 } else { 3 }
-    $autoDetail = "Patch management (maintenance window '$maintWindow'); $autoDetail"
-}
+$autoBase = @{ os = $autoUpdateMode; osDetail = $autoDetail; azure = $false; azDetail = ''; sccm = $false; ccmDetail = '' }
 
 # Azure Arc / Azure Update Manager. Scheduled patching (maintenance configuration) runs the extension
 # Microsoft.SoftwareUpdateManagement.WindowsOsUpdateExtension: its last RuntimeSettings\<n>.settings has the run
@@ -780,7 +802,7 @@ if ($himds) {
         }
         if ($when -and ((Get-Date) - $when).TotalDays -le 35) {
             $cls = if ($cfg.classificationsToInclude) { @($cfg.classificationsToInclude) -join '+' } else { 'all' }
-            $autoUpdateMode = if ($autoInstall) { 6 } else { 5 }
+            $autoBase.azure = $true
             $azDetail = "Azure Update Manager (Arc $arc): scheduled patching, last run $('{0:yyyy-MM-dd HH:mm}' -f $when) ($cls, reboot $($cfg.rebootSettings), $($cfg.maximumDuration) min, $(if ($st) { $st } else { '?' })$(if ($inst) { ", installed $inst" }))"
         } else {
             $azDetail = "Azure Update Manager (Arc $arc): no scheduled run in the last 35 days (last $(if ($when) { '{0:yyyy-MM-dd HH:mm}' -f $when } else { '?' }))"
@@ -793,7 +815,7 @@ if ($himds) {
         $azDetail = "Azure Arc ($arc)"
     }
 }
-if ($azDetail) { $autoDetail = "$azDetail; $autoDetail" }
+$autoBase.azDetail = $azDetail
 
 # SCCM / ConfigMgr client (CcmExec): software updates enabled in the client settings
 # (CCM_SoftwareUpdatesClientConfig.Enabled) = SCCM deploys and installs the updates: 7 SCCM, 8 SCCM + patch management.
@@ -814,14 +836,17 @@ if ($ccm) {
         $deployed = @()
         try { $deployed = @(Get-CimInstance -Namespace 'root\ccm\ClientSDK' -ClassName 'CCM_SoftwareUpdate' -ErrorAction Stop) } catch {}
         $next = $deployed | Where-Object { $_.Deadline } | Sort-Object Deadline | Select-Object -First 1
-        if ($autoUpdateMode -lt 5) { $autoUpdateMode = if ($autoInstall) { 8 } else { 7 } }
+        $autoBase.sccm = $true
         $ccmDetail = "SCCM / ConfigMgr$where`: software updates enabled, $($deployed.Count) deployed updates pending" +
             $(if ($next) { ", next deadline $('{0:yyyy-MM-dd HH:mm}' -f ([datetime]$next.Deadline))" })
     } else {
         $ccmDetail = "SCCM client$where`: software updates disabled"
     }
 }
-if ($ccmDetail) { $autoDetail = "$ccmDetail; $autoDetail" }
+$autoBase.ccmDetail = $ccmDetail
+# Kept for -SendConfig: a change of AUTO_UPDATE (host macro) updates patch.autoupdate right away
+try { $autoBase | ConvertTo-Json -Compress | Set-Content -Path $AutoStatePath -Encoding UTF8 -ErrorAction Stop } catch {}
+$autoUpdateMode, $autoDetail = Get-AutoUpdate $autoBase
 $source = if ($wsus) { "WSUS $wsus" } else { 'Windows Update' }
 
 # ---------------- Send ----------------

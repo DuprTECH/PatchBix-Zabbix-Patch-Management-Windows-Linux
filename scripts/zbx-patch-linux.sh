@@ -85,7 +85,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.12"
+SCRIPT_VERSION="26.10.12.1"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -388,9 +388,37 @@ zabbix_config() {
 }
 if [ "$MODE" = zabbix ]; then zabbix_config "$ZBX_VALUES"; exit 0; fi
 
+# How the host updates without the patch settings (OS mode 0-2 and detail, Azure scheduled patching and
+# detail), saved by the full check (4 lines), read by --send-config
+AUTO_STATE="$(dirname "$PATCH_CONF")/zbx-patch-autoupdate.cache"
+
+# auto_combine: AUTOUPDATE / AUTODETAIL from OSMODE, OSDETAIL, AZURE, AZDETAIL and the patch settings:
+# 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management (maintenance window and
+# AUTO_UPDATE="true" - this script installs the updates in it), 4 OS + patch management,
+# 5 Azure Update Manager (Arc scheduled patching), 6 Azure Update Manager + patch management
+auto_combine() {
+    AUTOUPDATE=$OSMODE; AUTODETAIL=$OSDETAIL
+    if [ "$AUTO_UPDATE" -eq 1 ]; then
+        if [ "$AUTOUPDATE" -gt 0 ]; then AUTOUPDATE=4; else AUTOUPDATE=3; fi
+        AUTODETAIL="Patch management (maintenance window '$MAINTENANCE_WINDOW'); $AUTODETAIL"
+    fi
+    if [ "$AZURE" -eq 1 ]; then
+        if [ "$AUTO_UPDATE" -eq 1 ]; then AUTOUPDATE=6; else AUTOUPDATE=5; fi
+    fi
+    [ -n "$AZDETAIL" ] && AUTODETAIL="$AZDETAIL; $AUTODETAIL"
+    return 0
+}
+
 # --send-config: only the patch settings (after a change of the host macros, by --zabbix-config)
 if [ "$MODE" = sendconfig ]; then
     {
+        # Automatic updates with the new settings (the base from the last full check)
+        if [ -r "$AUTO_STATE" ] && { read -r OSMODE; read -r OSDETAIL; read -r AZURE; read -r AZDETAIL; } < "$AUTO_STATE" \
+           && [[ $OSMODE =~ ^[0-2]$ ]] && [[ $AZURE =~ ^[01]$ ]]; then
+            auto_combine
+            echo "- patch.autoupdate $AUTOUPDATE"
+            echo "- patch.autoupdate.detail $(q "$AUTODETAIL")"
+        fi
         echo "- patch.autoupdate.config $AUTO_UPDATE"
         echo "- patch.config.override $(q "$CONFIG_SUMMARY")"
         echo "- patch.reboot.allowed $REBOOT_ALLOWED"
@@ -952,18 +980,12 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.check.result $(q "$RESULT")"
     echo "- patch.reboot.required $REBOOT"
     [ -n "$LASTBOOT" ] && echo "- patch.lastboot $LASTBOOT"
-    # Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management
-    # (a maintenance window is set - this script installs the updates in it), 4 OS + patch management,
-    # 5 Azure Update Manager (Arc scheduled patching), 6 Azure Update Manager + patch management
-    if [ "$AUTO_UPDATE" -eq 1 ]; then
-        if [ "$AUTOUPDATE" -gt 0 ]; then AUTOUPDATE=4; else AUTOUPDATE=3; fi
-        AUTODETAIL="Patch management (maintenance window '$MAINTENANCE_WINDOW'); $AUTODETAIL"
-    fi
+    # Automatic updates (auto_combine); the base is kept for --send-config
     azure_detect
-    if [ "$AZURE" -eq 1 ]; then
-        if [ "$AUTO_UPDATE" -eq 1 ]; then AUTOUPDATE=6; else AUTOUPDATE=5; fi
-    fi
-    [ -n "$AZDETAIL" ] && AUTODETAIL="$AZDETAIL; $AUTODETAIL"
+    OSMODE=$AUTOUPDATE; OSDETAIL=$AUTODETAIL
+    [ "$IS_ROOT" -eq 1 ] && printf '%s\n' "$OSMODE" "$OSDETAIL" "$AZURE" "$AZDETAIL" > "$AUTO_STATE" 2>/dev/null \
+        && chmod 644 "$AUTO_STATE" 2>/dev/null
+    auto_combine
     echo "- patch.autoupdate $AUTOUPDATE"
     echo "- patch.autoupdate.detail $(q "$AUTODETAIL")"
     echo "- patch.autoupdate.config $AUTO_UPDATE"
