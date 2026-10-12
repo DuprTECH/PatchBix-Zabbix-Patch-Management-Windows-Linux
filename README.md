@@ -124,6 +124,8 @@ The **host dashboard is included in the template** and is imported with it. Zabb
 
 The **global dashboard of all hosts is not part of this repository** and is not imported with the template (Zabbix can't export a global dashboard together with a template). **I can send it to you on request**, or help you fit it to your environment: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
 
+Besides the template on the hosts, the global dashboard uses a **helper (summary) host** with aggregate items, a second small template on it and a **read-only Zabbix API token** (only `item.get` and read access to the hosts) – thanks to it the charts of the OS versions, maintenance windows and check script versions update themselves when a new value appears.
+
 | Overview | All hosts | Reboot and installs |
 |:---:|:---:|:---:|
 | [![Global dashboard – overview](images/global_dashboard_1.png)](images/global_dashboard_1.png) | [![Global dashboard – all hosts](images/global_dashboard_2.png)](images/global_dashboard_2.png) | [![Global dashboard – reboot and installs](images/global_dashboard_3.png)](images/global_dashboard_3.png) |
