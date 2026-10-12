@@ -23,7 +23,7 @@ zabbix_export:
 
         Data are sent with zabbix_sender (trapper items) by the check scripts zbx-patch-windows.ps1 and zbx-patch-linux.sh,
         started by Task Scheduler / cron or by the Zabbix agent. Values that can't be determined on an OS are not sent
-        (for example severity on Debian / Ubuntu), so the item stays empty.
+        (for example severity on Ubuntu or on Debian without debsecan), so the item stays empty.
         Requirements: Zabbix 7.4+, zabbix_sender on the hosts.
         Source: https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
         Contact / custom work: info@duprtech.sk
@@ -377,7 +377,8 @@ zabbix_export:
           description: |
             Windows: classification Critical Updates.
             Linux (dnf / yum): packages with a security advisory of severity Critical.
-            Not sent on Debian / Ubuntu (apt has no severity).
+            Debian: packages with a fixed CVE of urgency high (debsecan, security-tracker.debian.org).
+            Not sent on Ubuntu or on Debian without debsecan / access to the security tracker.
           tags:
             - tag: component
               value: updates
@@ -490,7 +491,7 @@ zabbix_export:
           key: patch.updates.severity.critical
           history: 90d
           trends: 365d
-          description: 'Pending updates with severity Critical. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Not sent on Debian / Ubuntu.'
+          description: 'Pending updates with severity Critical. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
           tags:
             - tag: component
               value: severity
@@ -500,7 +501,7 @@ zabbix_export:
           key: patch.updates.severity.important
           history: 90d
           trends: 365d
-          description: 'Pending updates with severity Important. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Not sent on Debian / Ubuntu.'
+          description: 'Pending updates with severity Important. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
           tags:
             - tag: component
               value: severity
@@ -510,7 +511,7 @@ zabbix_export:
           key: patch.updates.severity.moderate
           history: 90d
           trends: 365d
-          description: 'Pending updates with severity Moderate. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Not sent on Debian / Ubuntu.'
+          description: 'Pending updates with severity Moderate. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
           tags:
             - tag: component
               value: severity
@@ -520,7 +521,7 @@ zabbix_export:
           key: patch.updates.severity.low
           history: 90d
           trends: 365d
-          description: 'Pending updates with severity Low. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Not sent on Debian / Ubuntu.'
+          description: 'Pending updates with severity Low. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
           tags:
             - tag: component
               value: severity

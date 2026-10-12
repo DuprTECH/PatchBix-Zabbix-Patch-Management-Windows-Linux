@@ -26,6 +26,7 @@
 #   zabbix_check_interval_hours=6     (interval in hours, a divisor of 24, default: 12)
 #   zabbix_check_run=false            (install only, don't run the check now)
 #   zabbix_sender_install=false       (don't install the package zabbix-sender when it's missing)
+#   debsecan_install=false            (Debian: don't install the package debsecan - the severity stays n/a)
 #
 # Requirements on the hosts: Zabbix agent config (Hostname / ServerActive); zabbix_sender is
 # installed from the package zabbix-sender when missing (Zabbix repository needed)
@@ -50,6 +51,9 @@
     # Install the package zabbix-sender when zabbix_sender is missing (needs the Zabbix repository,
     # usually present when the Zabbix agent was installed from it)
     zabbix_sender_install: true
+    # Debian: install debsecan - the severity of the security updates (critical updates, window type crit)
+    # from security-tracker.debian.org (needs access to it, http_proxy / https_proxy are used)
+    debsecan_install: true
     supported_pkg_mgrs: [apt, dnf, dnf5, yum]
 
   tasks:
@@ -93,6 +97,34 @@
       when:
         - zbx_sender_path.rc != 0
         - zbx_sender_install is not changed
+
+    - name: Install debsecan (Debian - severity of the security updates)
+      when:
+        - ansible_distribution == 'Debian'
+        - debsecan_install | bool
+      block:
+        - name: No daily report mails of the debsecan cron job
+          ansible.builtin.shell: echo "debsecan debsecan/report boolean false" | debconf-set-selections
+          changed_when: false
+          failed_when: false
+
+        - name: Install the package debsecan
+          ansible.builtin.apt:
+            name: debsecan
+            state: present
+          register: debsecan_pkg
+          failed_when: false
+
+        - name: Check debsecan
+          ansible.builtin.shell: command -v debsecan
+          register: debsecan_path
+          changed_when: false
+          failed_when: false
+
+        - name: Warning - debsecan not installed
+          ansible.builtin.debug:
+            msg: "WARNING: debsecan is not installed on {{ inventory_hostname }} - the severity (critical updates) stays n/a. {{ debsecan_pkg.msg | default('') }}"
+          when: debsecan_path.rc != 0
 
     - name: Install the check script
       ansible.builtin.copy:

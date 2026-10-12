@@ -8,8 +8,10 @@
 # Supports apt (Debian / Ubuntu) and dnf / yum (RHEL / Rocky / Alma / Oracle / Fedora / CentOS).
 #
 # Values that don't exist on Linux (definition, service packs, update rollups, drivers,
-# upgrades) are sent as 0. Values that can't be determined (severity and bugfix /
-# enhancement on apt, repository availability when not root) are not sent.
+# upgrades) are sent as 0. Values that can't be determined (bugfix / enhancement on apt, severity on
+# Ubuntu or on Debian without debsecan, repository availability when not root) are not sent.
+# On Debian the severity comes from debsecan (security-tracker.debian.org): the urgency of the fixed
+# CVEs of a package, high = Critical, medium = Important, low = Low.
 #
 # Run it as root from cron (recommended), for example /etc/cron.d/zbx-patch-linux:
 #   0 */3 * * * root /usr/local/bin/zbx-patch-linux.sh >/dev/null 2>&1
@@ -31,9 +33,9 @@
 #   MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"
 #                     when and which updates this script installs itself (--auto-update from cron):
 #                     "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas; types: * or all = all
-#                     updates (also without types), crit = critical (dnf / yum severity Critical; apt has no
-#                     severity - nothing), sec = security, kernel = kernel packages, def = Windows only,
-#                     several joined with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday.
+#                     updates (also without types), crit = critical (dnf / yum severity Critical, Debian
+#                     debsecan high urgency; Ubuntu - nothing), sec = security, kernel = kernel packages,
+#                     def = Windows only, several joined with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday.
 #                     The automatic updates need a window and AUTO_UPDATE="true".
 #   EXCLUDE="kernel*, docker-ce"           packages that are not updated (wildcards allowed)
 #   REBOOT="true"                          reboot after updates when needed (false = report only)
@@ -83,7 +85,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.11.10"
+SCRIPT_VERSION="26.10.12"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -251,8 +253,8 @@ day_match() {
 }
 
 # Update types of a window: * or all = all updates, crit = critical (dnf / yum: security advisories
-# with severity Critical; apt has no severity - nothing), sec = security, kernel = kernel packages,
-# def = definitions (Windows only - nothing on Linux); several joined with +, for example crit+kernel
+# with severity Critical; Debian: CVEs of high urgency by debsecan; Ubuntu - nothing), sec = security,
+# kernel = kernel packages, def = definitions (Windows only - nothing on Linux); several joined with +, for example crit+kernel
 types_norm() {
     local t out="" x
     local -a ts
@@ -494,6 +496,31 @@ fi
 # One run at a time (check, update and cron can overlap; apt / dnf need the lock too)
 { exec 9>/run/zbx-patch-linux.lock; } 2>/dev/null && command -v flock >/dev/null 2>&1 && flock -w 1800 9
 
+# Debian: severity of the updates from debsecan (data of security-tracker.debian.org, honours http_proxy /
+# https_proxy). Prints "<package> <severity>" for each installed package with a fixed CVE in the suite:
+# urgency high = Critical, medium = Important, low = Low, none = "-". The data is cached for 6 hours in
+# /var/lib/zbx-patch/debsecan (root). Returns 1 when it can't be determined (not Debian, no debsecan,
+# no access to the tracker) - the severity is then n/a.
+debsecan_sev() {
+    local id="" codename="" cache=/var/lib/zbx-patch/debsecan out
+    [ -r /etc/os-release ] && { id=$(. /etc/os-release && echo "$ID"); codename=$(. /etc/os-release && echo "$VERSION_CODENAME"); }
+    [ "$id" = debian ] && [ -n "$codename" ] && command -v debsecan >/dev/null 2>&1 || return 1
+    if [ "$(id -u)" -eq 0 ] && [ -s "$cache" ] && [ -n "$(find "$cache" -mmin -360 2>/dev/null)" ]; then
+        out=$(cat "$cache")
+    else
+        out=$(LANG=C timeout 180 debsecan --suite "$codename" --only-fixed --format summary 2>/dev/null) || return 1
+        # "CVE-2024-1234 openssl (fixed, remotely exploitable, high urgency)"
+        out="# debsecan --suite $codename --only-fixed $(date '+%Y-%m-%d %H:%M')
+$(printf '%s\n' "$out" | awk 'NF >= 2 && $1 !~ /^#/ {
+            u = "-"
+            if ($0 ~ /high urgency/) u = "Critical"; else if ($0 ~ /medium urgency/) u = "Important"; else if ($0 ~ /low urgency/) u = "Low"
+            print $2 " " u }' | sort -u)"
+        [ "$(id -u)" -eq 0 ] && mkdir -p "${cache%/*}" && printf '%s\n' "$out" > "$cache"
+    fi
+    printf '%s\n' "$out" | grep -v '^#'
+    return 0
+}
+
 # ---------------- Install updates (--update) ----------------
 # Like the Ansible playbook: refresh, upgrade without EXCLUDE, autoremove, reboot when needed
 # and allowed; the result goes to the patch.install.* items. Only in an open maintenance window and only
@@ -540,13 +567,17 @@ do_update() {
             apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold dist-upgrade \
                 || { rc=1; err="apt-get dist-upgrade failed"; }
         elif [ "$rc" -eq 0 ]; then
-            # Only the packages of the types: sec = from a security suite, kernel = kernel packages
-            # (apt has no severity - crit selects nothing; def is Windows only)
+            # Only the packages of the types: sec = from a security suite or with a fixed CVE (debsecan),
+            # crit = with a fixed CVE of high urgency (debsecan, Debian only), kernel = kernel packages
+            # (def is Windows only)
+            debsecan_sev > "$w/sev" 2>/dev/null || : > "$w/sev"
             sel=$(LANG=C apt-get -s -o Debug::NoLocking=1 dist-upgrade 2>/dev/null | awk -v t="+$types+" -v kre="$KERNEL_RE" '
-                /^Inst / { rest = $0; sub(/^[^(]*\(/, "", rest)
-                           if ((t ~ /\+sec\+/ && rest ~ /[Ss]ecurity/) || (t ~ /\+kernel\+/ && $2 ~ kre)) print $2 }' | sort -u)
+                FILENAME == ARGV[1] { cve[$1] = 1; if ($2 == "Critical") crit[$1] = 1; next }
+                /^Inst / { rest = $0; sub(/^[^(]*\(/, "", rest); n = $2; sub(/:.*/, "", n)
+                           if ((t ~ /\+sec\+/ && (rest ~ /[Ss]ecurity/ || n in cve)) || (t ~ /\+crit\+/ && n in crit) \
+                               || (t ~ /\+kernel\+/ && $2 ~ kre)) print $2 }' "$w/sev" - | sort -u)
             if [ -z "$sel" ]; then
-                echo "No updates of the types '$types'$(case "+$types+" in *+crit+*) echo ' (apt has no severity: crit selects nothing)' ;; esac)"
+                echo "No updates of the types '$types'$(case "+$types+" in *+crit+*) echo ' (crit = fixed CVEs of high urgency, needs debsecan - Debian only)' ;; esac)"
             else
                 # shellcheck disable=SC2086
                 apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install --only-upgrade $sel \
@@ -704,9 +735,25 @@ if command -v apt-get >/dev/null 2>&1; then
             print "[" cat "] " pkg " " (old != "" ? old " -> " : "") f[1]
         }' "$WORK/inst")
         ALL=$(wc -l < "$WORK/inst")
-        SECURITY=$(printf '%s\n' "$LIST" | grep -c '^\[security\]')
         KERNEL=$(awk '{print $2}' "$WORK/inst" | grep -cE "$KERNEL_RE")
     fi
+    # Debian + debsecan: a package with a fixed CVE is a security update with the severity of its most
+    # urgent CVE ("[security] [Critical] openssl ..."); without debsecan the severity stays n/a
+    if debsecan_sev > "$WORK/sev"; then
+        LIST=$(printf '%s\n' "$LIST" | awk '
+            function rank(s) { return s == "Critical" ? 4 : s == "Important" ? 3 : s == "Low" ? 1 : 0 }
+            FILENAME == ARGV[1] { if (!($1 in r) || rank($2) > r[$1]) { r[$1] = rank($2); sv[$1] = $2 }; next }
+            NF == 0 { next }
+            { n = $2; sub(/:.*/, "", n)
+              if (n in r) { sub(/^\[[a-z]+\] /, ""); print "[security]" (r[n] > 0 ? " [" sv[n] "]" : "") " " $0 }
+              else print }' "$WORK/sev" -)
+        CRITICAL=$(printf '%s\n' "$LIST" | grep -c '^\[security\] \[Critical\]')
+        SEV_CRITICAL=$CRITICAL
+        SEV_IMPORTANT=$(printf '%s\n' "$LIST" | grep -c '^\[security\] \[Important\]')
+        SEV_MODERATE=0
+        SEV_LOW=$(printf '%s\n' "$LIST" | grep -c '^\[security\] \[Low\]')
+    fi
+    [ -n "$LIST" ] && SECURITY=$(printf '%s\n' "$LIST" | grep -c '^\[security\]')
     HELD=$(apt-mark showhold 2>/dev/null | grep -c .)
 
     if [ -f /var/run/reboot-required ]; then

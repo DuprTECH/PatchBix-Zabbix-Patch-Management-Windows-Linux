@@ -67,18 +67,18 @@ By default the check script **only reports** (`AUTO_UPDATE` not set = false), se
 
 ## Items
 
-Values that exist on only one OS are kept too: on the other OS they are sent as `0` (for example *definition* on Linux, *kernel* on Windows). Values that can't be determined are not sent, so the item stays empty (for example severity on Debian / Ubuntu, because apt has no severity).
+Values that exist on only one OS are kept too: on the other OS they are sent as `0` (for example *definition* on Linux, *kernel* on Windows). Values that can't be determined are not sent, so the item stays empty (for example severity on Ubuntu, because apt has no severity). On **Debian** the severity comes from [debsecan](https://packages.debian.org/stable/debsecan) (installed by the setup script and the playbook): the urgency of the CVEs fixed by a pending update, from the Debian security tracker – `high` = *Critical*, `medium` = *Important*, `low` = *Low*. A package with a fixed CVE counts as a security update. debsecan needs access to `security-tracker.debian.org` (`http_proxy` / `https_proxy` are used); the data is cached for 6 hours, without it the severity stays empty.
 
 | Item | Key | Windows | Linux |
 |------|-----|---------|-------|
 | Updates: All | `patch.updates.all` | updates and drivers (not hidden) | packages to upgrade / install |
 | Updates: Security | `patch.updates.security` | Security Updates | security advisory (dnf / yum), `*-security` suite (apt) |
-| Updates: Critical | `patch.updates.critical` | Critical Updates | security advisory with severity Critical (dnf / yum), not sent on apt |
+| Updates: Critical | `patch.updates.critical` | Critical Updates | security advisory with severity Critical (dnf / yum), CVE of urgency high (Debian + debsecan), not sent on Ubuntu |
 | Updates: Bugfix / Enhancement | `patch.updates.bugfix`, `.enhancement` | Updates / Feature Packs | bugfix / enhancement advisory (dnf / yum), not sent on apt |
 | Updates: Kernel | `patch.updates.kernel` | 0 | pending kernel packages |
 | Updates: Held / hidden | `patch.updates.held` | hidden updates | `apt-mark hold`, versionlock |
 | Updates: Definition, Service packs, Update rollups, Drivers, Upgrades | `patch.updates.definition`, `.servicepacks`, `.updaterollups`, `.drivers`, `.upgrades` | by classification | 0 |
-| Severity: Critical / Important / Moderate / Low | `patch.updates.severity.critical`, `.important`, `.moderate`, `.low` | MSRC severity | advisory severity (dnf / yum), not sent on apt |
+| Severity: Critical / Important / Moderate / Low | `patch.updates.severity.critical`, `.important`, `.moderate`, `.low` | MSRC severity | advisory severity (dnf / yum), CVE urgency (Debian + debsecan), not sent on Ubuntu |
 | Pending updates list | `patch.updates.list` | `[security] [Critical] KB… - title` | `[security] [Important] package version` |
 | Update history | `patch.history` | Windows Update history (without definition updates) | `/var/log/apt/history.log`, rpm install time |
 | Reboot required / reason | `patch.reboot.required`, `patch.reboot.reason` | Windows Update, Component Based Servicing | `reboot-required`, `needs-restarting`, newer kernel installed |
@@ -248,7 +248,7 @@ REBOOT="true"
   | Type | Windows | Linux |
   |------|---------|-------|
   | `*` / `all` (also no type) | security, critical, update rollups, definitions, updates | everything (apt dist-upgrade, dnf / yum upgrade) |
-  | `crit` | classification *Critical Updates* or MSRC severity *Critical* | dnf / yum: security advisories with severity *Critical*; **apt: nothing** (apt has no severity) |
+  | `crit` | classification *Critical Updates* or MSRC severity *Critical* | dnf / yum: security advisories with severity *Critical*; Debian: packages with a fixed CVE of urgency *high* (debsecan); **Ubuntu: nothing** (apt has no severity) |
   | `sec` | *Security Updates* | security updates (apt security suite, dnf / yum `--security`) |
   | `kernel` | – | kernel packages |
   | `def` | definitions (Defender) | – |

@@ -5,7 +5,7 @@
 # or straight from GitHub (no terminal = menu choice 1, settings kept / defaults):
 #   curl -fsSL https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/setup-linux.sh | sudo bash
 # A menu asks what to do (or MODE=update bash setup-linux.sh):
-#   1 monitor  = like ansible/check-linux.yml: checker zbx-patch-linux.sh, zabbix-sender, cron (check every
+#   1 monitor  = like ansible/check-linux.yml: checker zbx-patch-linux.sh, zabbix-sender, debsecan (Debian), cron (check every
 #                12 h and after a reboot, automatic update every 15 min), patch settings /etc/zabbix/zbx-patch.conf,
 #                UserParameter patch.config (host macros {$PATCH.CONF.*}), first check. Running it again updates an installed server and keeps the settings.
 #   2 check    = run the update check now (pending updates -> Zabbix) and show the patch settings
@@ -88,6 +88,13 @@ monitor() {
         else $PM install -y -q zabbix-sender >/dev/null 2>&1; fi
         command -v zabbix_sender >/dev/null 2>&1 || warn "zabbix_sender is not installed - install the package zabbix-sender (Zabbix repository)."
     fi
+    # Debian: debsecan for the severity of the security updates (Critical / Important / Low, window type crit)
+    if [ "$(. /etc/os-release 2>/dev/null && echo "$ID")" = debian ] && ! command -v debsecan >/dev/null 2>&1; then
+        # no daily report mails of its own cron job
+        echo "debsecan debsecan/report boolean false" | debconf-set-selections 2>/dev/null
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq debsecan >/dev/null 2>&1 \
+            || warn "debsecan is not installed - the severity (critical updates) stays n/a. Install the package debsecan."
+    fi
     # Check every INTERVAL_HOURS (shifted by a per-host offset of -30..+30 min) and after a reboot,
     # automatic update every 15 min (installs only with AUTO_UPDATE="true", in the maintenance window)
     local offset minute shift hours h keep win auto excl reboot
@@ -153,8 +160,8 @@ EOF
 #
 # Maintenance window - when and which updates the checker installs itself (with AUTO_UPDATE="true").
 #   "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
-#   types: * = all updates (also without types), crit = critical (dnf / yum severity Critical; apt has no
-#          severity), sec = security, kernel = kernel packages; several joined with +, for example crit+sec
+#   types: * = all updates (also without types), crit = critical (dnf / yum severity Critical; Debian: CVEs
+#          of high urgency by debsecan; Ubuntu: nothing), sec = security, kernel = kernel packages; several joined with +, for example crit+sec
 #   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
 #   an end lower than the start = the window ends the next day (6 22:00-04:00)
 #   MAINTENANCE_WINDOW="* 3 03:00-05:00"                         = all updates every Wednesday 03:00-05:00
