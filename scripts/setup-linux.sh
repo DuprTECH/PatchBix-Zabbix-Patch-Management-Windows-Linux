@@ -207,7 +207,7 @@ update() {
     if [ "$1" = 1 ]; then "$CHECK" --update --force; else "$CHECK" --update; fi
 }
 
-# Embedded check script: zbx-patch-linux.sh from DuprTECH/Zabbix-Patch-Management-Windows-Linux f2e60c3 (embed-check.sh)
+# Embedded check script: zbx-patch-linux.sh from DuprTECH/Zabbix-Patch-Management-Windows-Linux 2edf39a (embed-check.sh)
 CHECK_B64='
 H4sIAAAAAAACA6xb/Vvbxpb+3X/FVJjaMpK/aNK7Js4tBbKwDR+LSdNeQnlkW8a6sSVXknEosH/7
 vufMSBrJMsnu07QPSKOZMzPn4z0fM2x91xp6fmvoRNPKlrD/xn8g99fwi71w4tHUnnn+8kuT5ziY
