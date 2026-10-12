@@ -207,7 +207,7 @@ function Install-UpdatesNow([bool]$Force) {
     if ($Force) { Invoke-Check '-Update', '-Force' | Out-Host } else { Invoke-Check '-Update' | Out-Host }
 }
 #
-# Embedded check script: zbx-patch-windows.ps1 from DuprTECH/Zabbix-Patch-Management-Windows-Linux 99dea19 (embed-check.sh)
+# Embedded check script: zbx-patch-windows.ps1 from DuprTECH/Zabbix-Patch-Management-Windows-Linux f2e60c3 (embed-check.sh)
 $CheckB64 = @'
 H4sIAAAAAAACA6Q6a1fjOLLf8yt00rk3NsQmTx6h6W0G6G22h8eQsL1zgenjh0K8OHbGdoBMw3+/
 VSXJlp3Qs3NvzxxiS1ZVqd5V0rsr/vsiSHjKrH/yJA3iiA3sTu39u5o9+vX84nJ0Oqox+Hc05d5D
