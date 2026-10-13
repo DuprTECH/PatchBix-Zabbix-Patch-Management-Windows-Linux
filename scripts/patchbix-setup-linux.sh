@@ -1,36 +1,36 @@
 #!/bin/bash
-# setup-linux.sh - Zabbix patch management on a Linux server without Ansible: setup, check, updates
+# patchbix-setup-linux.sh - Zabbix patch management on a Linux server without Ansible: setup, check, updates
 #
-# Paste the whole file into a root shell (sudo -i), or run it as a file: sudo bash setup-linux.sh
+# Paste the whole file into a root shell (sudo -i), or run it as a file: sudo bash patchbix-setup-linux.sh
 # or straight from GitHub (no terminal = menu choice 1, settings kept / defaults):
-#   curl -fsSL https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/setup-linux.sh | sudo bash
-# A menu asks what to do (or MODE=update bash setup-linux.sh):
-#   1 monitor  = like ansible/check-linux.yml: checker zbx-patch-linux.sh, zabbix-sender, debsecan (Debian), cron (check every
-#                12 h and after a reboot, automatic update every 15 min), patch settings /etc/zabbix/zbx-patch.conf,
+#   curl -fsSL https://raw.githubusercontent.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux/main/scripts/patchbix-setup-linux.sh | sudo bash
+# A menu asks what to do (or MODE=update bash patchbix-setup-linux.sh):
+#   1 monitor  = like ansible/check-linux.yml: checker patchbix-linux.sh, zabbix-sender, debsecan (Debian), cron (check every
+#                12 h and after a reboot, automatic update every 15 min), patch settings /etc/zabbix/patchbix.conf,
 #                UserParameter patch.config (host macros {$PATCH.CONF.*}), first check. Running it again updates an installed server and keeps the settings.
 #   2 check    = run the update check now (pending updates -> Zabbix) and show the patch settings
 #   3 update   = install updates now in the maintenance window,
 #                without EXCLUDE packages, reboot when needed and REBOOT="true", result to Zabbix
 #   4 force    = like 3, also outside the maintenance window
 #
-# AUTO_UPDATE="false" in zbx-patch.conf (default) = the checker only checks; "true" = it installs the
+# AUTO_UPDATE="false" in patchbix.conf (default) = the checker only checks; "true" = it installs the
 # updates itself in the maintenance window (once per window, like 3).
 #
-# The checker zbx-patch-linux.sh is embedded (no internet needed); a copy in /tmp/zbx-patch-linux.sh wins.
+# The checker patchbix-linux.sh is embedded (no internet needed); a copy in /tmp/patchbix-linux.sh wins.
 # Supported: apt (Debian / Ubuntu), dnf / yum (RHEL / Rocky / Alma / Oracle / CentOS).
-# Docs: README.md (https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux)
+# Docs: README.md (https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux)
 #
 # Author : Dusan Priechodsky
-# Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+# Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
 # Contact: info@duprtech.sk
 # License: MIT
 (
 MODE="${MODE:-}"                  # monitor | check | update | force, empty = menu
 INTERVAL_HOURS="${INTERVAL_HOURS:-12}"
 
-CHECK=/usr/local/bin/zbx-patch-linux.sh
-CRON=/etc/cron.d/zbx-patch-linux
-CONF=/etc/zabbix/zbx-patch.conf
+CHECK=/usr/local/bin/patchbix-linux.sh
+CRON=/etc/cron.d/patchbix
+CONF=/etc/zabbix/patchbix.conf
 
 warn() { echo "WARNING: $*" >&2; }
 
@@ -41,7 +41,7 @@ ask() {
     REPLY="${a:-$2}"
 }
 
-# Value from the patch settings JSON (zbx-patch-linux.sh --show-config)
+# Value from the patch settings JSON (patchbix-linux.sh --show-config)
 json_get() { printf '%s' "$CFG" | sed -n "s/.*\"$1\": \(\"[^\"]*\"\|[a-z0-9]*\).*/\1/p" | sed 's/^"//; s/"$//'; }
 
 if [ "$(id -u)" -ne 0 ]; then echo "Run as root (sudo -i)." >&2; exit 1; fi
@@ -51,14 +51,14 @@ for p in apt-get dnf yum; do command -v $p >/dev/null 2>&1 && { PM=$p; break; };
 
 # ---------------- Checker ----------------
 # The checker is embedded before the menu (no internet needed); a newer copy in
-# /tmp/zbx-patch-linux.sh is used instead
+# /tmp/patchbix-linux.sh is used instead
 get_check() {
     local tmp="$CHECK.new" src="embedded"
-    if [ -f /tmp/zbx-patch-linux.sh ]; then cp /tmp/zbx-patch-linux.sh "$tmp"; src=/tmp/zbx-patch-linux.sh
+    if [ -f /tmp/patchbix-linux.sh ]; then cp /tmp/patchbix-linux.sh "$tmp"; src=/tmp/patchbix-linux.sh
     else printf '%s' "$CHECK_B64" | base64 -d 2>/dev/null | gunzip > "$tmp" 2>/dev/null; fi
     if ! grep -q -- '--auto-update' "$tmp" 2>/dev/null; then
         rm -f "$tmp"
-        echo "ERROR: the checker ($src) is damaged or old - copy zbx-patch-linux.sh to /tmp/zbx-patch-linux.sh and run again." >&2
+        echo "ERROR: the checker ($src) is damaged or old - copy patchbix-linux.sh to /tmp/patchbix-linux.sh and run again." >&2
         return 1
     fi
     install -m 755 "$tmp" "$CHECK" && rm -f "$tmp"
@@ -83,6 +83,8 @@ show_config() {
 monitor() {
     echo "=== Update checker for Zabbix"
     get_check || return 1
+    # A run of the checker moves the settings of an older version (zbx-patch.conf) to the PatchBix names
+    "$CHECK" --show-config >/dev/null 2>&1
     if ! command -v zabbix_sender >/dev/null 2>&1; then
         if [ "$PM" = apt-get ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zabbix-sender >/dev/null 2>&1
         else $PM install -y -q zabbix-sender >/dev/null 2>&1; fi
@@ -104,13 +106,13 @@ monitor() {
     for (( h = 0; h < 24; h += INTERVAL_HOURS )); do
         hours="${hours:+$hours,}$(( (h + shift + 24) % 24 ))"
     done
-    rm -f /etc/cron.d/zbx-patch-linux-afterboot
+    rm -f /etc/cron.d/zbx-patch-afterboot /etc/cron.d/zbx-patch-linux   # older versions
     cat > "$CRON" <<EOF
-# Zabbix patch check (template 'APP Patch management all OS') - installed by setup-linux.sh
+# PatchBix check (template 'PatchBix - Patch management all OS') - installed by patchbix-setup-linux.sh
 # check every $INTERVAL_HOURS h, check after a reboot, automatic update (AUTO_UPDATE="true" in $CONF) every 15 min
 $minute $hours * * * root $CHECK >/dev/null 2>&1
 @reboot root sleep 300; $CHECK >/dev/null 2>&1
-*/15 * * * * root $CHECK --auto-update >>/var/log/zbx-patch-update.log 2>&1
+*/15 * * * * root $CHECK --auto-update >>/var/log/patchbix-update.log 2>&1
 EOF
     chmod 644 "$CRON"
     echo "Cron $CRON: check $minute $hours * * * and after a reboot, auto update every 15 min"
@@ -151,12 +153,12 @@ EOF
     setting() { case "$2" in "$UNSET"|-|"") echo "#$1=\"$3\"" ;; *) echo "$1=\"$2\"" ;; esac; }
     mkdir -p "$(dirname "$CONF")"
     cat > "$CONF" <<EOF
-# zbx-patch.conf - patch management settings of this host
-# Read by the checker zbx-patch-linux.sh (sent to Zabbix, template 'APP Patch management all OS')
-# and by setup-linux.sh (update). Written by setup-linux.sh -
+# patchbix.conf - patch management settings of this host
+# Read by the checker patchbix-linux.sh (sent to Zabbix, template 'PatchBix - Patch management all OS')
+# and by patchbix-setup-linux.sh (update). Written by patchbix-setup-linux.sh -
 # you can edit it, the values are kept when the setup runs again.
 # A setting that is commented out is not set: the default applies (nothing set = check only).
-# The Zabbix host macros {\$PATCH.CONF.*} win over this file (zbx-patch-from-zbx-host-macro.cache).
+# The Zabbix host macros {\$PATCH.CONF.*} win over this file (patchbix-from-zbx-host-macro.cache).
 #
 # Maintenance window - when and which updates the checker installs itself (with AUTO_UPDATE="true").
 #   "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
@@ -169,7 +171,7 @@ EOF
 $(setting MAINTENANCE_WINDOW "$win" "* 3 03:00-05:00")
 
 # Automatic updates: true = the checker installs the update types of the window itself in it (cron every
-# 15 min, once per window, log /var/log/zbx-patch-update.log); false = check only (default) - the windows
+# 15 min, once per window, log /var/log/patchbix-update.log); false = check only (default) - the windows
 # can be set first and the automatic updates turned on later
 $(setting AUTO_UPDATE "$auto" true)
 # Updates that are not installed, separated by commas: package names, wildcards allowed (default: none)
@@ -180,7 +182,7 @@ $(setting REBOOT "$reboot" false)
 EOF
     chmod 644 "$CONF"
     echo "Saved $CONF"
-    # Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} -> zbx-patch-from-zbx-host-macro.cache),
+    # Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} -> patchbix-from-zbx-host-macro.cache),
     # the agent is restarted only when its config changed (undone when it doesn't start)
     echo "=== Zabbix agent: UserParameter patch.config (settings from the host macros)"
     "$CHECK" --install-agent-config || warn "UserParameter not installed - the host macros {\$PATCH.CONF.*} don't apply on this host"
@@ -207,7 +209,7 @@ update() {
     if [ "$1" = 1 ]; then "$CHECK" --update --force; else "$CHECK" --update; fi
 }
 
-# Embedded check script: zbx-patch-linux.sh from DuprTECH/Zabbix-Patch-Management-Windows-Linux 33d9103 (embed-check.sh)
+# Embedded check script: patchbix-linux.sh from DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux 33d9103 (embed-check.sh)
 CHECK_B64='
 H4sIAAAAAAACA6xb/Vvbxpb+3X/FVJjaMpb8QZPeNXFuKZCFbfhYTJr2Esoj2zLWjS25koxDgf3b
 9z1nRtJIlkl2n6Z9QBrNnJk5H+/5mGHru9bQ81tDJ5pWtoT1N/4Dub+GX6yFE4+m1szzl19snuNg
@@ -514,7 +516,7 @@ dsBR6RSR6ENLsiw/4bEtcA/z5lgw/wt+sfllUN4AAA==
 # ---------------- Menu ----------------
 if [ -z "$MODE" ]; then
     echo "Zabbix patch management - $(uname -n)"
-    echo "  1) monitor - install / update the checker for Zabbix (cron, zbx-patch.conf incl. AUTO_UPDATE)"
+    echo "  1) monitor - install / update the checker for Zabbix (cron, patchbix.conf incl. AUTO_UPDATE)"
     echo "  2) check   - run the update check now"
     echo "  3) update  - install updates (only in the maintenance window)"
     echo "  4) force   - install updates now (also outside the maintenance window)"

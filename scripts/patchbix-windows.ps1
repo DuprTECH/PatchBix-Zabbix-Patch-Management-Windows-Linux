@@ -2,10 +2,10 @@
 <#
 .SYNOPSIS
     Checks pending Windows updates and sends the result to Zabbix with zabbix_sender,
-    to the OS independent template 'APP Patch management all OS'.
+    to the OS independent template 'PatchBix - Patch management all OS'.
 
 .DESCRIPTION
-    Uses the Windows Update Agent API. Sends the same keys (patch.*) as zbx-patch-linux.sh on Linux:
+    Uses the Windows Update Agent API. Sends the same keys (patch.*) as patchbix-linux.sh on Linux:
       patch.updates.all / security / critical / bugfix / enhancement / definition / servicepacks /
                     updaterollups / drivers / upgrades / kernel / held (hidden updates)
       patch.updates.severity.critical / important / moderate / low (MSRC severity)
@@ -42,7 +42,7 @@
     date. They are installed several times a day, so they are left out by default.
 
 .PARAMETER PatchConfig
-    Patch settings of the host (default: zbx-patch.conf in the folder of the agent config).
+    Patch settings of the host (default: patchbix.conf in the folder of the agent config).
     The same file format as on Linux:
       MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"
                     when and which updates this script installs itself (-AutoUpdate task):
@@ -70,7 +70,7 @@
 
 .PARAMETER AutoUpdate
     For the scheduled task (every 15 min): in an open maintenance window does -Update once per window
-    (its update types), otherwise exits right away (log: C:\ProgramData\zbx-patch\update.log).
+    (its update types), otherwise exits right away (log: C:\ProgramData\patchbix\update.log).
 
 .PARAMETER Force
     With -Update: install all updates, also outside a maintenance window.
@@ -78,8 +78,8 @@
 .PARAMETER ZabbixConfig
     For the Zabbix agent (UserParameter patch.config): "<window>|<auto update>|<exclude>|<reboot>", the
     values of the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}. The set (non empty) ones are validated and written to
-    zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf (only when they changed); its keys win over
-    zbx-patch.conf, which is never changed from Zabbix. Prints OK / ERROR for the item.
+    patchbix-from-zbx-host-macro.cache next to patchbix.conf (only when they changed); its keys win over
+    patchbix.conf, which is never changed from Zabbix. Prints OK / ERROR for the item.
     The agent forbids * " ' $ ; | # and other characters in the values, so: window all = all update types
     and 1-7 = every day (instead of *), "none" = no window (no automatic updates); exclude % = wildcard,
     "none" = nothing excluded.
@@ -94,11 +94,11 @@
     service; when the service doesn't run afterwards, the changes are undone.
 
 .EXAMPLE
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File zbx-patch-windows.ps1
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File patchbix-windows.ps1
 
 .NOTES
     Author : Dusan Priechodsky
-    Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+    Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
     Contact: info@duprtech.sk
     License: MIT
 #>
@@ -122,7 +122,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.12.1'
+$ScriptVersion = '26.10.13'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -182,18 +182,25 @@ function Test-Definition($Entry) {
     "$($Entry.Title)" -match 'Security Intelligence Update|Definition Update|KB2267602|KB915597'
 }
 
-# ---------------- Patch settings (zbx-patch.conf) ----------------
+# ---------------- Patch settings (patchbix.conf) ----------------
 if (-not $PatchConfig) {
     $dir = if ($ConfigPath) { Split-Path $ConfigPath -Parent } else { "" }
     if (-not $dir) { $dir = "C:\Program Files\Zabbix Agent 2" }
-    $PatchConfig = Join-Path $dir 'zbx-patch.conf'
+    $PatchConfig = Join-Path $dir 'patchbix.conf'
+    # Older versions (zbx-patch-windows.ps1): the settings and the macro / state files are moved to the
+    # PatchBix names (only when the new one doesn't exist yet)
+    foreach ($pair in @(@('zbx-patch.conf', 'patchbix.conf'), @('zbx-patch-from-zbx-host-macro.cache', 'patchbix-from-zbx-host-macro.cache'),
+                        @('zbx-patch-autoupdate.cache', 'patchbix-autoupdate.cache'))) {
+        $old = Join-Path $dir $pair[0]; $new = Join-Path $dir $pair[1]
+        if ((Test-Path $old) -and -not (Test-Path $new)) { try { Move-Item $old $new -ErrorAction Stop } catch {} }
+    }
 }
 
 # Settings from the Zabbix host macros {$PATCH.CONF.*}, written by the agent (-ZabbixConfig);
-# a key set there wins over zbx-patch.conf
-$PatchConfigMacro = Join-Path (Split-Path $PatchConfig -Parent) 'zbx-patch-from-zbx-host-macro.cache'
+# a key set there wins over patchbix.conf
+$PatchConfigMacro = Join-Path (Split-Path $PatchConfig -Parent) 'patchbix-from-zbx-host-macro.cache'
 # How the host updates without the patch settings (OS, Azure Update Manager, SCCM), saved by the full check
-$AutoStatePath = Join-Path (Split-Path $PatchConfig -Parent) 'zbx-patch-autoupdate.cache'
+$AutoStatePath = Join-Path (Split-Path $PatchConfig -Parent) 'patchbix-autoupdate.cache'
 
 # KEY="value" (also 'value' or value # comment); the last one wins, the macro file last
 function Read-PatchConf([string]$Path) {
@@ -225,7 +232,7 @@ $rebootAllowed = if ("$($conf['REBOOT'])" -match '^(no|false|0|off)$') { 0 } els
 $autoUpdateOn  = "$($conf['AUTO_UPDATE'])" -match '^(yes|true|1|on)$'
 $autoInstall   = if ($maintWindow -and $autoUpdateOn) { 1 } else { 0 }
 
-# The settings that are set, each with its source: [S] = Zabbix host macro, [C] = zbx-patch.conf (the item
+# The settings that are set, each with its source: [S] = Zabbix host macro, [C] = patchbix.conf (the item
 # preprocessing shows them as symbols); empty = nothing set - no automatic updates
 # (item patch.config.override, column Config of the dashboards)
 $configParts = @()
@@ -349,9 +356,9 @@ function Set-MacroConfig([string]$Values) {
         $keys += 'REBOOT'; $lines += "REBOOT=`"$r`""
     }
     $content = @(
-        '# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}'
-        '# (item patch.config, zbx-patch-windows.ps1 -ZabbixConfig). Don''t edit it: it is overwritten when a macro'
-        '# changes. The keys here win over zbx-patch.conf; an empty macro leaves zbx-patch.conf in effect.'
+        '# patchbix-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}'
+        '# (item patch.config, patchbix-windows.ps1 -ZabbixConfig). Don''t edit it: it is overwritten when a macro'
+        '# changes. The keys here win over patchbix.conf; an empty macro leaves patchbix.conf in effect.'
     ) + $lines
     $summary = if ($keys.Count) { $keys -join ', ' } else { 'no host macros set' }
     if ((Test-Path $PatchConfigMacro) -and ((@(Get-Content $PatchConfigMacro) -join "`n") -eq ($content -join "`n"))) {
@@ -439,16 +446,32 @@ function Install-AgentConfig {
     $changed = $false; $backup = $null
     if (-not $incDir) {
         $incDir = Join-Path $confDir $(if ($agent2) { 'zabbix_agent2.d' } else { 'zabbix_agentd.d' })
-        $backup = "$ConfigPath.zbx-patch.bak"
+        $backup = "$ConfigPath.patchbix.bak"
         Copy-Item $ConfigPath $backup -Force
-        Add-Content -Path $ConfigPath -Encoding ASCII -Value @('', '# Added by zbx-patch-windows.ps1 (UserParameter patch.config)', "Include=$incDir\*.conf")
+        Add-Content -Path $ConfigPath -Encoding ASCII -Value @('', '# Added by patchbix-windows.ps1 (UserParameter patch.config)', "Include=$incDir\*.conf")
         Write-Host "Include=$incDir\*.conf added to $ConfigPath"
         $changed = $true
     }
     New-Item -ItemType Directory -Force $incDir | Out-Null
-    $upFile = Join-Path $incDir 'zbx-patch-userparameter.conf'
+    # Older versions (zbx-patch-windows.ps1): their UserParameter (the same key - the agent wouldn't start),
+    # scheduled tasks and check script are removed
+    $oldUp = Join-Path $incDir 'zbx-patch-userparameter.conf'
+    if (Test-Path $oldUp) {
+        Remove-Item $oldUp, "$oldUp.bak" -Force -ErrorAction SilentlyContinue
+        Write-Host "Removed the UserParameter of the older version: $oldUp"
+        $changed = $true
+    }
+    foreach ($t in 'Zabbix patch check', 'Zabbix patch auto update') {
+        if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue
+            Write-Host "Removed the scheduled task of the older version: $t"
+        }
+    }
+    $oldScript = Join-Path (Split-Path $PSCommandPath -Parent) 'zbx-patch-windows.ps1'
+    if (Test-Path $oldScript) { Remove-Item $oldScript -Force -ErrorAction SilentlyContinue; Write-Host "Removed the check script of the older version: $oldScript" }
+    $upFile = Join-Path $incDir 'patchbix-userparameter.conf'
     $content = @(
-        '# Settings from the Zabbix host macros {$PATCH.CONF.*} - installed by zbx-patch-windows.ps1'
+        '# Settings from the Zabbix host macros {$PATCH.CONF.*} - installed by patchbix-windows.ps1'
         "UserParameter=patch.config[*],powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -ConfigPath `"$ConfigPath`" -ZabbixConfig `"`$1|`$2|`$3|`$4`""
     )
     $upBackup = $null
@@ -459,7 +482,7 @@ function Install-AgentConfig {
         $changed = $true
     }
     if (-not (Test-Path $PatchConfigMacro)) {
-        Set-Content -Path $PatchConfigMacro -Encoding ASCII -Value '# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}'
+        Set-Content -Path $PatchConfigMacro -Encoding ASCII -Value '# patchbix-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}'
     }
     Write-Host "Settings from the host macros: $PatchConfigMacro"
     if (-not $changed) { Write-Host 'Agent config unchanged'; return 0 }
@@ -505,7 +528,10 @@ if ($ShowConfig) {
 }
 
 # -AutoUpdate (scheduled task every 15 min): only with a maintenance window, when it is open, once per window
-$stateDir = Join-Path $env:ProgramData 'zbx-patch'
+$stateDir = Join-Path $env:ProgramData 'patchbix'
+# Older versions: C:\ProgramData\zbx-patch
+$oldStateDir = Join-Path $env:ProgramData 'zbx-patch'
+if ((Test-Path $oldStateDir) -and -not (Test-Path $stateDir)) { try { Move-Item $oldStateDir $stateDir -ErrorAction Stop } catch {} }
 $stamp    = Join-Path $stateDir 'last-auto-update'
 $logFile  = $null
 if ($AutoUpdate) {
@@ -522,7 +548,7 @@ if ($AutoUpdate) {
 if ($maint.error) { Write-Warning "${PatchConfig}: $($maint.error)" }
 
 # One run at a time (the check, the update and the scheduled tasks can overlap)
-$mutex = New-Object System.Threading.Mutex($false, 'Global\zbx-patch-windows')
+$mutex = New-Object System.Threading.Mutex($false, 'Global\patchbix-windows')
 try { [void]$mutex.WaitOne([TimeSpan]::FromMinutes(30)) } catch [System.Threading.AbandonedMutexException] {}
 
 # Pending reboot: Windows Update or Component Based Servicing (used by the install and by the check)
@@ -618,8 +644,8 @@ function Install-Updates {
     Send-ToZabbix -SenderArgs @('-k', 'patch.install.result', '-o', (Clean $result)) | Out-Null
     if ($doReboot) {
         Send-ToZabbix -SenderArgs @('-k', 'patch.reboot.required', '-o', 0) | Out-Null
-        # The check runs again after the reboot (startup trigger of the task "Zabbix patch check")
-        shutdown.exe /r /t 120 /c "Reboot after the update (zbx-patch-windows.ps1)"
+        # The check runs again after the reboot (startup trigger of the task "PatchBix check")
+        shutdown.exe /r /t 120 /c "Reboot after the update (patchbix-windows.ps1)"
         Write-Host 'Rebooting in 2 minutes (cancel: shutdown /a).'
         return 'reboot'
     }

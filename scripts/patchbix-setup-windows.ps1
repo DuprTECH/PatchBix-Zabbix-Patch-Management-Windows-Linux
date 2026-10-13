@@ -1,31 +1,31 @@
-# setup-windows.ps1 - Zabbix patch management on a Windows server without Ansible: setup, check, updates
+# patchbix-setup-windows.ps1 - Zabbix patch management on a Windows server without Ansible: setup, check, updates
 #
 # Paste the whole file into PowerShell as administrator, or run it as a file:
-#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup-windows.ps1
-# A menu asks what to do (or set $env:ZBX_PATCH_MODE = 'update' before):
-#   1 monitor  = like ansible/check-windows.yml: checker zbx-patch-windows.ps1, scheduled tasks (check every
-#                12 h and after a reboot, automatic update every 15 min), patch settings <Zabbix agent folder>\zbx-patch.conf,
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File patchbix-setup-windows.ps1
+# A menu asks what to do (or set $env:PATCHBIX_MODE = 'update' before):
+#   1 monitor  = like ansible/check-windows.yml: checker patchbix-windows.ps1, scheduled tasks (check every
+#                12 h and after a reboot, automatic update every 15 min), patch settings <Zabbix agent folder>\patchbix.conf,
 #                UserParameter patch.config (host macros {$PATCH.CONF.*}), first check. Running it again updates an installed server and keeps the settings.
 #   2 check    = run the update check now (pending updates -> Zabbix) and show the patch settings
 #   3 update   = install updates now (security, critical, rollups, definitions,
 #                updates) in the maintenance window, without EXCLUDE, reboot when needed and REBOOT="true", result to Zabbix
 #   4 force    = like 3, also outside the maintenance window
 #
-# AUTO_UPDATE="false" in zbx-patch.conf (default) = the checker only checks; "true" = it installs the
+# AUTO_UPDATE="false" in patchbix.conf (default) = the checker only checks; "true" = it installs the
 # updates itself in the maintenance window (once per window, like 3).
 #
-# The checker zbx-patch-windows.ps1 is embedded (no internet needed); a copy in %TEMP% or C:\Temp wins.
-# Requires the Zabbix agent 2 (zabbix_sender.exe). Docs: README.md (https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux)
+# The checker patchbix-windows.ps1 is embedded (no internet needed); a copy in %TEMP% or C:\Temp wins.
+# Requires the Zabbix agent 2 (zabbix_sender.exe). Docs: README.md (https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux)
 #
 # Author : Dusan Priechodsky
-# Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+# Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
 # Contact: info@duprtech.sk
 # License: MIT
 & {
-$Mode          = "$env:ZBX_PATCH_MODE"     # monitor | check | update | force, empty = menu
+$Mode          = "$env:PATCHBIX_MODE"     # monitor | check | update | force, empty = menu
 $IntervalHours = 12
-$TaskName      = 'Zabbix patch check'
-$AutoTaskName  = 'Zabbix patch auto update'
+$TaskName      = 'PatchBix check'
+$AutoTaskName  = 'PatchBix auto update'
 #
 function Ask([string]$Question, [string]$Default) {
     $a = Read-Host "$Question [$Default]"
@@ -39,15 +39,15 @@ $AgentDir = @('C:\Program Files\Zabbix Agent 2', 'C:\Program Files\Zabbix Agent'
 if (-not $AgentDir) { Write-Warning 'zabbix_sender.exe not found - install the Zabbix agent 2 first.'; return }
 $ZSender   = Join-Path $AgentDir 'zabbix_sender.exe'
 $AgentConf = (Get-ChildItem $AgentDir -Filter 'zabbix_agent*.conf' | Select-Object -First 1).FullName
-$Check     = Join-Path $AgentDir 'scripts\zbx-patch-windows.ps1'
-$PatchConf = Join-Path $AgentDir 'zbx-patch.conf'
+$Check     = Join-Path $AgentDir 'scripts\patchbix-windows.ps1'
+$PatchConf = Join-Path $AgentDir 'patchbix.conf'
 #
 # ---------------- Checker ----------------
 # The checker is embedded before the menu (no internet needed); a newer copy in %TEMP% or C:\Temp is used instead
 function Get-Check {
     New-Item -ItemType Directory -Force (Split-Path $Check) | Out-Null
     $tmp   = "$Check.new"
-    $local = @("$env:TEMP\zbx-patch-windows.ps1", 'C:\Temp\zbx-patch-windows.ps1') | Where-Object { Test-Path $_ } | Select-Object -First 1
+    $local = @("$env:TEMP\patchbix-windows.ps1", 'C:\Temp\patchbix-windows.ps1') | Where-Object { Test-Path $_ } | Select-Object -First 1
     $src   = if ($local) { $local } else { 'embedded' }
     try {
         if ($local) { Copy-Item $local $tmp -Force }
@@ -62,7 +62,7 @@ function Get-Check {
     } catch {}
     if (-not ((Test-Path $tmp) -and (Select-String -Path $tmp -Pattern 'AutoUpdate' -Quiet))) {
         Remove-Item $tmp -ErrorAction SilentlyContinue
-        Write-Warning "The checker ($src) is damaged or old - copy zbx-patch-windows.ps1 to $env:TEMP and run again."
+        Write-Warning "The checker ($src) is damaged or old - copy patchbix-windows.ps1 to $env:TEMP and run again."
         return $false
     }
     Move-Item $tmp $Check -Force
@@ -103,6 +103,8 @@ function Invoke-CheckNow {
 function Install-Monitor {
     Write-Host '=== Update checker for Zabbix'
     if (-not (Get-Check)) { return $false }
+    # A run of the checker moves the settings of an older version (zbx-patch.conf) to the PatchBix names
+    Invoke-Check '-ShowConfig' | Out-Null
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$Check`" -SenderPath `"$ZSender`" -ConfigPath `"$AgentConf`""
     # Check every IntervalHours (shifted by a per-host offset of -30..+30 min) and 5 min after a reboot
@@ -158,12 +160,12 @@ function Install-Monitor {
         if ($Value -in $unset, '-', '') { "#$Key=`"$Example`"" } else { "$Key=`"$Value`"" }
     }
     @"
-# zbx-patch.conf - patch management settings of this host
-# Read by the checker zbx-patch-windows.ps1 (sent to Zabbix, template 'APP Patch management all OS')
-# and by setup-windows.ps1 (update). Written by setup-windows.ps1 -
+# patchbix.conf - patch management settings of this host
+# Read by the checker patchbix-windows.ps1 (sent to Zabbix, template 'PatchBix - Patch management all OS')
+# and by patchbix-setup-windows.ps1 (update). Written by patchbix-setup-windows.ps1 -
 # you can edit it, the values are kept when the setup runs again.
 # A setting that is commented out is not set: the default applies (nothing set = check only).
-# The Zabbix host macros {`$PATCH.CONF.*} win over this file (zbx-patch-from-zbx-host-macro.cache).
+# The Zabbix host macros {`$PATCH.CONF.*} win over this file (patchbix-from-zbx-host-macro.cache).
 #
 # Maintenance window - when and which updates the checker installs itself (with AUTO_UPDATE="true").
 #   "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
@@ -176,7 +178,7 @@ function Install-Monitor {
 $(Setting 'MAINTENANCE_WINDOW' $win '* 3 03:00-05:00')
 #
 # Automatic updates: true = the checker installs the update types of the window itself in it (task "Zabbix
-# patch auto update" every 15 min, once per window, log C:\ProgramData\zbx-patch\update.log); false = check
+# patch auto update" every 15 min, once per window, log C:\ProgramData\patchbix\update.log); false = check
 # only (default) - the windows can be set first and the automatic updates turned on later
 $(Setting 'AUTO_UPDATE' $auto 'true')
 #
@@ -187,7 +189,7 @@ $(Setting 'EXCLUDE' $ex 'KB5034441, Preview')
 $(Setting 'REBOOT' $rb 'false')
 "@ | Set-Content -Path $PatchConf -Encoding ASCII
     Write-Host "Saved $PatchConf"
-    # Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} -> zbx-patch-from-zbx-host-macro.cache),
+    # Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} -> patchbix-from-zbx-host-macro.cache),
     # the agent is restarted only when its config changed (undone when it doesn't start)
     Write-Host '=== Zabbix agent: UserParameter patch.config (settings from the host macros)'
     Invoke-Check '-InstallAgentConfig' | Out-Host
@@ -207,7 +209,7 @@ function Install-UpdatesNow([bool]$Force) {
     if ($Force) { Invoke-Check '-Update', '-Force' | Out-Host } else { Invoke-Check '-Update' | Out-Host }
 }
 #
-# Embedded check script: zbx-patch-windows.ps1 from DuprTECH/Zabbix-Patch-Management-Windows-Linux 33d9103 (embed-check.sh)
+# Embedded check script: patchbix-windows.ps1 from DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux 33d9103 (embed-check.sh)
 $CheckB64 = @'
 H4sIAAAAAAACA6Q7a1fjyLHf/Sv6eHyvJbCEnzzMMBkWmAyZ5RFsMtkL7B492lhBlrySDHgG/nuq
 qrullmxms7mzOVjqVldV17uqO++u+O+LIOEps/7BkzSIIzawO7X372r26Jfzi8vR6ajG4N/RlHsP
@@ -473,7 +475,7 @@ zb3s5lzMTtdCoJfgRSETCnuxkGIm3Au4cIe8UlfaXYAFADtlzuTMVy1MzeEXNrBNcsw4d6OgYQ4W
 # ---------------- Menu ----------------
 if (-not $Mode) {
     Write-Host "Zabbix patch management - $env:COMPUTERNAME"
-    Write-Host '  1) monitor - install / update the checker for Zabbix (scheduled tasks, zbx-patch.conf incl. AUTO_UPDATE)'
+    Write-Host '  1) monitor - install / update the checker for Zabbix (scheduled tasks, patchbix.conf incl. AUTO_UPDATE)'
     Write-Host '  2) check   - run the update check now'
     Write-Host '  3) update  - install updates (only in the maintenance window)'
     Write-Host '  4) force   - install updates now (also outside the maintenance window)'

@@ -7,14 +7,14 @@
 #   ansible-playbook -i inventory.ini patch-and-report.yml -e patch_reboot=false
 #
 # Windows: ansible.windows.win_updates, Linux: apt / dnf / yum
-#   -> template 'APP Patch management all OS' (keys patch.install.*)
+#   -> template 'PatchBix - Patch management all OS' (keys patch.install.*)
 # Legacy Windows template 'APP Winupdates check' (old/): -e zabbix_keys=legacy (or both)
 #
 # Requirements on the controller: zabbix_sender, collection ansible.windows
 # (ansible-galaxy collection install ansible.windows)
 #
 # Author : Dusan Priechodsky
-# Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+# Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
 # Contact: info@duprtech.sk
 # License: MIT
 # ----------------------------------------------------------------------------
@@ -29,7 +29,7 @@
     zabbix_port: 10051
     # Host name in Zabbix (must match the "Host name" of the host in Zabbix)
     zabbix_host_name: "{{ zabbix_host | default(inventory_hostname) }}"
-    # Which keys to send: allos (APP Patch management all OS), legacy (old Windows
+    # Which keys to send: allos (PatchBix - Patch management all OS), legacy (old Windows
     # template APP Winupdates check, Windows hosts only) or both
     zabbix_keys: allos
     # Reboot automatically when the updates need it
@@ -45,8 +45,8 @@
     # Run the check scripts after patching so Zabbix gets the new state right away
     # (the scripts that are not installed on the host are skipped)
     win_check_script: 'C:\Program Files\Zabbix Agent 2\scripts\zbx-windows-updates.ps1'
-    win_check_script_allos: 'C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1'
-    linux_check_script_allos: /usr/local/bin/zbx-patch-linux.sh
+    win_check_script_allos: 'C:\Program Files\Zabbix Agent 2\scripts\patchbix-windows.ps1'
+    linux_check_script_allos: /usr/local/bin/patchbix-linux.sh
 
   tasks:
     # =========================== WINDOWS ===========================

@@ -1,9 +1,9 @@
 #!/bin/bash
 # ----------------------------------------------------------------------------
-# zbx-patch-linux.sh
+# patchbix-linux.sh
 # Checks pending package updates on Linux and sends the result to Zabbix with
-# zabbix_sender, to the OS independent template 'APP Patch management all OS'
-# (keys patch.*, the same keys as zbx-patch-windows.ps1 on Windows).
+# zabbix_sender, to the OS independent template 'PatchBix - Patch management all OS'
+# (keys patch.*, the same keys as patchbix-windows.ps1 on Windows).
 #
 # Supports apt (Debian / Ubuntu) and dnf / yum (RHEL / Rocky / Alma / Oracle / Fedora / CentOS).
 #
@@ -13,8 +13,8 @@
 # On Debian the severity comes from debsecan (security-tracker.debian.org): the urgency of the fixed
 # CVEs of a package, high = Critical, medium = Important, low = Low.
 #
-# Run it as root from cron (recommended), for example /etc/cron.d/zbx-patch-linux:
-#   0 */3 * * * root /usr/local/bin/zbx-patch-linux.sh >/dev/null 2>&1
+# Run it as root from cron (recommended), for example /etc/cron.d/patchbix:
+#   0 */3 * * * root /usr/local/bin/patchbix-linux.sh >/dev/null 2>&1
 #
 # Settings (environment variables):
 #   ZABBIX_SENDER   path to zabbix_sender          (default: zabbix_sender)
@@ -27,7 +27,7 @@
 #   ZABBIX_HOST     optional host name in Zabbix   (instead of Hostname; default uname -n
 #                   when the config has no Hostname, for example HostnameItem=system.hostname)
 #   HISTORY_LINES   number of lines in the update history item (default: 50)
-#   PATCH_CONF      patch settings of the host (default: /etc/zabbix/zbx-patch.conf)
+#   PATCH_CONF      patch settings of the host (default: /etc/zabbix/patchbix.conf)
 #
 # Patch settings (PATCH_CONF, optional, the same file format on Windows):
 #   MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"
@@ -49,9 +49,9 @@
 # Settings from Zabbix (host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE},
 # {$PATCH.CONF.REBOOT}):
 # the agent item patch.config (UserParameter, installed by --install-agent-config) writes the set ones to
-# zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf (PATCH_CONF_MACRO). Its keys win over
-# zbx-patch.conf, which is never changed from Zabbix.
-# patch.config.override: the settings that are set, [S] = from the host macro, [C] = zbx-patch.conf
+# patchbix-from-zbx-host-macro.cache next to patchbix.conf (PATCH_CONF_MACRO). Its keys win over
+# patchbix.conf, which is never changed from Zabbix.
+# patch.config.override: the settings that are set, [S] = from the host macro, [C] = patchbix.conf
 # (the item preprocessing shows them as symbols), for example
 #   [S] window: crit * 03:00-05:00, [C] reboot: false
 #   Empty = nothing set: no automatic updates, reboot when needed, nothing excluded.
@@ -64,7 +64,7 @@
 #                   (patch.install.*), reboot when needed and REBOOT="true", then check
 #   --auto-update   for cron (every 15 min): with AUTO_UPDATE="true", in an open maintenance window does
 #                   --update once per window (its update types), otherwise exits right away
-#                   (log: /var/log/zbx-patch-update.log via cron)
+#                   (log: /var/log/patchbix-update.log via cron)
 #   --zabbix-config "<window>|<auto update>|<exclude>|<reboot>"
 #                   for the agent (UserParameter patch.config): validate the macro values and write
 #                   the macro file (only when changed); prints OK / ERROR for the item
@@ -75,7 +75,7 @@
 #                   the macro file writable by the agent, restart of the agent (undone when it fails)
 #
 # Author : Dusan Priechodsky
-# Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+# Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
 # Contact: info@duprtech.sk
 # License: MIT
 # ----------------------------------------------------------------------------
@@ -85,7 +85,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.12.1"
+SCRIPT_VERSION="26.10.13"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -154,11 +154,20 @@ patchday() {
     echo "$(( (d - 1) / 7 + 1 )).$(LC_ALL=C date -d "@$1" +%a)"
 }
 
-# ---------------- Patch settings (zbx-patch.conf) ----------------
-PATCH_CONF="${PATCH_CONF:-/etc/zabbix/zbx-patch.conf}"
+# ---------------- Patch settings (patchbix.conf) ----------------
+# Older versions (zbx-patch-linux.sh): the settings, the macro and state files are moved to the PatchBix
+# names (root, the default location, only when the new one doesn't exist yet)
+if [ -z "${PATCH_CONF:-}" ] && [ "$(id -u)" -eq 0 ]; then
+    for f in zbx-patch.conf:patchbix.conf zbx-patch-from-zbx-host-macro.cache:patchbix-from-zbx-host-macro.cache \
+             zbx-patch-autoupdate.cache:patchbix-autoupdate.cache; do
+        [ -f "/etc/zabbix/${f%%:*}" ] && [ ! -e "/etc/zabbix/${f#*:}" ] && mv "/etc/zabbix/${f%%:*}" "/etc/zabbix/${f#*:}"
+    done
+    [ -d /var/lib/zbx-patch ] && [ ! -e /var/lib/patchbix ] && mv /var/lib/zbx-patch /var/lib/patchbix
+fi
+PATCH_CONF="${PATCH_CONF:-/etc/zabbix/patchbix.conf}"
 # Settings from the Zabbix host macros {$PATCH.CONF.*}, written by the agent (UserParameter
-# patch.config, --zabbix-config); a key set there wins over zbx-patch.conf
-PATCH_CONF_MACRO="${PATCH_CONF_MACRO:-$(dirname "$PATCH_CONF")/zbx-patch-from-zbx-host-macro.cache}"
+# patch.config, --zabbix-config); a key set there wins over patchbix.conf
+PATCH_CONF_MACRO="${PATCH_CONF_MACRO:-$(dirname "$PATCH_CONF")/patchbix-from-zbx-host-macro.cache}"
 
 # Value of KEY="value" (also 'value' or value # comment); the last one wins, the macro file last
 conf_get() {
@@ -190,14 +199,14 @@ AUTO_UPDATE=0
 # Keys set by the host macros
 MACRO_KEYS=$( [ -r "$PATCH_CONF_MACRO" ] && sed -n -E 's/^[[:space:]]*([A-Z_]+)[[:space:]]*=.*/\1/p' "$PATCH_CONF_MACRO" \
     | sort -u | paste -sd, - | sed 's/,/, /g')
-# Source of a setting: S (Zabbix host macro), C (zbx-patch.conf) or nothing (not set - the default applies)
+# Source of a setting: S (Zabbix host macro), C (patchbix.conf) or nothing (not set - the default applies)
 conf_src() {
     local f
     for f in "$PATCH_CONF_MACRO:S" "$PATCH_CONF:C"; do
         [ -r "${f%:*}" ] && grep -qE "^[[:space:]]*$1[[:space:]]*=" "${f%:*}" && { echo "${f##*:}"; return; }
     done
 }
-# The settings that are set, each with its source: [S] = Zabbix host macro, [C] = zbx-patch.conf
+# The settings that are set, each with its source: [S] = Zabbix host macro, [C] = patchbix.conf
 # (the item preprocessing shows them as symbols); empty = nothing set - no automatic updates
 # (item patch.config.override, column Config of the dashboards)
 CONFIG_SUMMARY=""
@@ -330,7 +339,7 @@ tf() { [ "$1" -eq 1 ] && echo true || echo false; }
 # ---------------- Settings from the Zabbix host macros (--zabbix-config) ----------------
 # Run by the Zabbix agent (UserParameter patch.config, as the user zabbix) with the values of the
 # macros {$PATCH.CONF.WINDOW}|{$PATCH.CONF.AUTO_UPDATE}|{$PATCH.CONF.EXCLUDE}|{$PATCH.CONF.REBOOT}.
-# Writes the set (non empty) ones to PATCH_CONF_MACRO, only when they changed; zbx-patch.conf is
+# Writes the set (non empty) ones to PATCH_CONF_MACRO, only when they changed; patchbix.conf is
 # never changed. Invalid values: nothing is written, the item gets "ERROR: ...".
 # The agent forbids * " ' $ ; | # and other characters in the values (UnsafeUserParameters=0), so:
 #   window: all = all update types and 1-7 = every day (instead of *), "none" = no window (no automatic
@@ -368,9 +377,9 @@ zabbix_config() {
         esac
         keys+=(REBOOT); lines+=("REBOOT=\"$r\"")
     fi
-    content="# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {\$PATCH.CONF.*}
-# (item patch.config, zbx-patch-linux.sh --zabbix-config). Don't edit it: it is overwritten when a macro
-# changes. The keys here win over zbx-patch.conf; an empty macro leaves zbx-patch.conf in effect."
+    content="# patchbix-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {\$PATCH.CONF.*}
+# (item patch.config, patchbix-linux.sh --zabbix-config). Don't edit it: it is overwritten when a macro
+# changes. The keys here win over patchbix.conf; an empty macro leaves patchbix.conf in effect."
     [ ${#lines[@]} -gt 0 ] && content+=$'\n'$(printf '%s\n' "${lines[@]}")
     local summary
     summary=$(IFS=,; echo "${keys[*]}"); summary=${summary//,/, }; summary=${summary:-no host macros set}
@@ -378,7 +387,7 @@ zabbix_config() {
         echo "OK, unchanged: $summary"; return
     fi
     if ! { [ -w "$PATCH_CONF_MACRO" ] || { [ ! -e "$PATCH_CONF_MACRO" ] && [ -w "$(dirname "$PATCH_CONF_MACRO")" ]; }; }; then
-        echo "ERROR: $PATCH_CONF_MACRO is not writable by $(id -un) - run zbx-patch-linux.sh --install-agent-config as root"; return
+        echo "ERROR: $PATCH_CONF_MACRO is not writable by $(id -un) - run patchbix-linux.sh --install-agent-config as root"; return
     fi
     printf '%s\n' "$content" > "$PATCH_CONF_MACRO" || { echo "ERROR: writing $PATCH_CONF_MACRO failed"; return; }
     echo "OK, written: $summary"
@@ -390,7 +399,7 @@ if [ "$MODE" = zabbix ]; then zabbix_config "$ZBX_VALUES"; exit 0; fi
 
 # How the host updates without the patch settings (OS mode 0-2 and detail, Azure scheduled patching and
 # detail), saved by the full check (4 lines), read by --send-config
-AUTO_STATE="$(dirname "$PATCH_CONF")/zbx-patch-autoupdate.cache"
+AUTO_STATE="$(dirname "$PATCH_CONF")/patchbix-autoupdate.cache"
 
 # auto_combine: AUTOUPDATE / AUTODETAIL from OSMODE, OSDETAIL, AZURE, AZDETAIL and the patch settings:
 # 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management (maintenance window and
@@ -456,26 +465,37 @@ install_agent_config() {
     backup=""
     if [ -z "$incdir" ]; then
         incdir="$(dirname "$ZABBIX_CONF")/$agent.d"
-        backup="$ZABBIX_CONF.zbx-patch.bak"
+        backup="$ZABBIX_CONF.patchbix.bak"
         cp -p "$ZABBIX_CONF" "$backup"
-        printf '\n# Added by zbx-patch-linux.sh (UserParameter patch.config)\nInclude=%s/*.conf\n' "$incdir" >> "$ZABBIX_CONF"
+        printf '\n# Added by patchbix-linux.sh (UserParameter patch.config)\nInclude=%s/*.conf\n' "$incdir" >> "$ZABBIX_CONF"
         echo "Include=$incdir/*.conf added to $ZABBIX_CONF"
         changed=1
     fi
     mkdir -p "$incdir"
-    upfile="$incdir/zbx-patch-userparameter.conf"
+    # Older versions (zbx-patch-linux.sh): their UserParameter (the same key - the agent wouldn't start),
+    # cron and check script are removed
+    if [ -f "$incdir/zbx-patch-userparameter.conf" ]; then
+        rm -f "$incdir/zbx-patch-userparameter.conf" "$incdir/zbx-patch-userparameter.conf.bak"
+        echo "Removed the UserParameter of the older version: $incdir/zbx-patch-userparameter.conf"
+        changed=1
+    fi
+    [ -f /etc/cron.d/zbx-patch-linux ] && rm -f /etc/cron.d/zbx-patch-linux && echo "Removed the cron of the older version: /etc/cron.d/zbx-patch-linux"
+    for f in /usr/local/bin/zbx-patch-linux.sh "$(dirname "$self")/zbx-patch-linux.sh"; do
+        [ -f "$f" ] && [ "$f" != "$self" ] && rm -f "$f" && echo "Removed the check script of the older version: $f"
+    done
+    upfile="$incdir/patchbix-userparameter.conf"
     line="UserParameter=patch.config[*],$self --zabbix-config \"\$1|\$2|\$3|\$4\""
-    if [ "$(cat "$upfile" 2>/dev/null)" != "# Settings from the Zabbix host macros {\$PATCH.CONF.*} - installed by zbx-patch-linux.sh
+    if [ "$(cat "$upfile" 2>/dev/null)" != "# Settings from the Zabbix host macros {\$PATCH.CONF.*} - installed by patchbix-linux.sh
 $line" ]; then
         [ -f "$upfile" ] && cp -p "$upfile" "$upfile.bak"
-        printf '# Settings from the Zabbix host macros {$PATCH.CONF.*} - installed by zbx-patch-linux.sh\n%s\n' "$line" > "$upfile"
+        printf '# Settings from the Zabbix host macros {$PATCH.CONF.*} - installed by patchbix-linux.sh\n%s\n' "$line" > "$upfile"
         chmod 644 "$upfile"
         echo "UserParameter patch.config: $upfile"
         changed=1
     fi
     # The macro file: the agent (user zabbix) writes it
     grp=$(getent group zabbix >/dev/null && echo zabbix || echo root)
-    [ -f "$PATCH_CONF_MACRO" ] || printf '# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}\n' > "$PATCH_CONF_MACRO"
+    [ -f "$PATCH_CONF_MACRO" ] || printf '# patchbix-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}\n' > "$PATCH_CONF_MACRO"
     chown "root:$grp" "$PATCH_CONF_MACRO" && chmod 664 "$PATCH_CONF_MACRO"
     echo "Settings from the host macros: $PATCH_CONF_MACRO (root:$grp 664)"
     if [ "$changed" -eq 0 ]; then echo "Agent config unchanged"; return 0; fi
@@ -504,7 +524,7 @@ if [ "$MODE" = show ]; then
 fi
 
 # --auto-update (cron every 15 min): only with a maintenance window, when it is open, once per window
-STAMP=/var/lib/zbx-patch/last-auto-update
+STAMP=/var/lib/patchbix/last-auto-update
 if [ "$MODE" = auto ]; then
     [ "$AUTO_UPDATE" -eq 1 ] && [ "$MAINT_ACTIVE" -eq 1 ] || exit 0
     [ "$(cat "$STAMP" 2>/dev/null || echo 0)" -ge "$MAINT_START" ] 2>/dev/null && exit 0
@@ -522,15 +542,15 @@ if [ -z "$ZABBIX_CONF" ] && [ -z "$ZABBIX_SERVER" ]; then
 fi
 
 # One run at a time (check, update and cron can overlap; apt / dnf need the lock too)
-{ exec 9>/run/zbx-patch-linux.lock; } 2>/dev/null && command -v flock >/dev/null 2>&1 && flock -w 1800 9
+{ exec 9>/run/patchbix.lock; } 2>/dev/null && command -v flock >/dev/null 2>&1 && flock -w 1800 9
 
 # Debian: severity of the updates from debsecan (data of security-tracker.debian.org, honours http_proxy /
 # https_proxy). Prints "<package> <severity>" for each installed package with a fixed CVE in the suite:
 # urgency high = Critical, medium = Important, low = Low, none = "-". The data is cached for 6 hours in
-# /var/lib/zbx-patch/debsecan (root). Returns 1 when it can't be determined (not Debian, no debsecan,
+# /var/lib/patchbix/debsecan (root). Returns 1 when it can't be determined (not Debian, no debsecan,
 # no access to the tracker) - the severity is then n/a.
 debsecan_sev() {
-    local id="" codename="" cache=/var/lib/zbx-patch/debsecan out
+    local id="" codename="" cache=/var/lib/patchbix/debsecan out
     [ -r /etc/os-release ] && { id=$(. /etc/os-release && echo "$ID"); codename=$(. /etc/os-release && echo "$VERSION_CODENAME"); }
     [ "$id" = debian ] && [ -n "$codename" ] && command -v debsecan >/dev/null 2>&1 || return 1
     if [ "$(id -u)" -eq 0 ] && [ -s "$cache" ] && [ -n "$(find "$cache" -mmin -360 2>/dev/null)" ]; then
@@ -659,8 +679,8 @@ do_update() {
     count=$(printf '%s' "$changes" | grep -c .)
     [ "$rc" -eq 0 ] && [ "$need" -eq 1 ] && [ "$REBOOT_ALLOWED" -eq 1 ] && doreboot=1
     # Schedule the reboot first, so the result tells whether it worked
-    # (the check runs again after the reboot: @reboot line in /etc/cron.d/zbx-patch-linux)
-    if [ "$doreboot" -eq 1 ] && ! shutdown -r +2 "Reboot after the update (zbx-patch-linux.sh)"; then
+    # (the check runs again after the reboot: @reboot line in /etc/cron.d/patchbix)
+    if [ "$doreboot" -eq 1 ] && ! shutdown -r +2 "Reboot after the update (patchbix-linux.sh)"; then
         doreboot=0; rebootfail=1
     fi
     if [ "$rc" -ne 0 ]; then result="FAILED: $err"

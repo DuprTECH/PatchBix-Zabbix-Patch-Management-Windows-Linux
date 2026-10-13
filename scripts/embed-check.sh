@@ -1,13 +1,13 @@
 #!/bin/bash
 # ----------------------------------------------------------------------------
-# embed-check.sh - embeds the check scripts zbx-patch-linux.sh / zbx-patch-windows.ps1 (gzip + base64)
-# into setup-linux.sh / setup-windows.ps1, so they work on servers without access to GitHub.
+# embed-check.sh - embeds the check scripts patchbix-linux.sh / patchbix-windows.ps1 (gzip + base64)
+# into patchbix-setup-linux.sh / patchbix-setup-windows.ps1, so they work on servers without access to GitHub.
 # Run it after a change of the check scripts and commit the result (it takes the committed
 # version of the check scripts, HEAD):
 #   bash scripts/embed-check.sh
 #
 # Author : Dusan Priechodsky
-# Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+# Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
 # Contact: info@duprtech.sk
 # License: MIT
 # ----------------------------------------------------------------------------
@@ -20,7 +20,7 @@ REV=$(git -C "$REPO" rev-parse --short HEAD)
 embed() {
     local target="$DIR/$1"
     DATA=$(git -C "$REPO" show "HEAD:scripts/$2" | gzip -9n | base64 -w 76) \
-    REV_LINE="# Embedded check script: $2 from DuprTECH/Zabbix-Patch-Management-Windows-Linux $REV (embed-check.sh)" \
+    REV_LINE="# Embedded check script: $2 from DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux $REV (embed-check.sh)" \
     awk -v b="$3" -v e="$4" '
         index($0, "# Embedded check script:") == 1 { print ENVIRON["REV_LINE"]; next }
         $0 == b && ! skip { print; print ENVIRON["DATA"]; skip = 1; next }
@@ -29,5 +29,5 @@ embed() {
     mv "$target.tmp" "$target"
     echo "$1: $2 $REV ($(grep -c '' "$target") lines)"
 }
-embed setup-linux.sh    zbx-patch-linux.sh    "CHECK_B64='" "'"
-embed setup-windows.ps1 zbx-patch-windows.ps1 "\$CheckB64 = @'" "'@"
+embed patchbix-setup-linux.sh    patchbix-linux.sh    "CHECK_B64='" "'"
+embed patchbix-setup-windows.ps1 patchbix-windows.ps1 "\$CheckB64 = @'" "'@"

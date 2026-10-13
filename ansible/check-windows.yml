@@ -1,14 +1,14 @@
 ---
 # ----------------------------------------------------------------------------
-# Check (no updates are installed, unless AUTO_UPDATE="true" in zbx-patch.conf) - Windows
+# Check (no updates are installed, unless AUTO_UPDATE="true" in patchbix.conf) - Windows
 #
-# Installs the check script zbx-patch-windows.ps1 on Windows hosts, schedules it and runs it,
-# so Zabbix (template 'APP Patch management all OS') gets the update status of the hosts:
+# Installs the check script patchbix-windows.ps1 on Windows hosts, schedules it and runs it,
+# so Zabbix (template 'PatchBix - Patch management all OS') gets the update status of the hosts:
 #   1. downloads the script from this repository (on the controller, the hosts don't need internet)
 #   2. installs it to <Zabbix agent folder>\scripts and runs it by Task Scheduler
-#      (task "Zabbix patch check", SYSTEM) every 12 hours (+/- 30 min per host)
-#      and after a reboot, plus the task "Zabbix patch auto update" every 15 min (installs updates only
-#      with AUTO_UPDATE="true" in zbx-patch.conf, in the maintenance window - see the README)
+#      (task "PatchBix check", SYSTEM) every 12 hours (+/- 30 min per host)
+#      and after a reboot, plus the task "PatchBix auto update" every 15 min (installs updates only
+#      with AUTO_UPDATE="true" in patchbix.conf, in the maintenance window - see the README)
 #   3. runs the check now and shows its output (pending updates, reboot, zabbix_sender result)
 #
 # Use it when you only want the reporting (updates are installed by WSUS, SCCM, Intune, another
@@ -26,11 +26,11 @@
 # Requirements: collection ansible.windows; Zabbix agent 2 (or agent) with zabbix_sender.exe on the hosts
 #
 # Author : Dusan Priechodsky
-# Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+# Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
 # Contact: info@duprtech.sk
 # License: MIT
 # ----------------------------------------------------------------------------
-- name: Install Zabbix patch check (Windows)
+- name: Install PatchBix check (Windows)
   hosts: "{{ target | default('windows') }}"
   gather_facts: false
 
@@ -38,11 +38,11 @@
     zabbix_agent_dirs:
       - 'C:\Program Files\Zabbix Agent 2'
       - 'C:\Program Files\Zabbix Agent'
-    zabbix_check_script_url: https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/zbx-patch-windows.ps1
+    zabbix_check_script_url: https://raw.githubusercontent.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux/main/scripts/patchbix-windows.ps1
     zabbix_check_interval_hours: 12
     # Per-host offset -30..+30 min around the planned time (stable for a host, spreads the load)
     zabbix_check_offset: "{{ (61 | random(seed=inventory_hostname)) - 30 }}"
-    zabbix_check_task_name: Zabbix patch check
+    zabbix_check_task_name: PatchBix check
     zabbix_check_run: true
 
   tasks:
@@ -62,7 +62,7 @@
             dir    = $dir
             sender = Join-Path $dir 'zabbix_sender.exe'
             conf   = if ($conf) { $conf.FullName } else { '' }
-            script = Join-Path $dir 'scripts\zbx-patch-windows.ps1'
+            script = Join-Path $dir 'scripts\patchbix-windows.ps1'
         } | ConvertTo-Json -Compress
       register: zbx_agent_probe
       changed_when: false
@@ -106,8 +106,8 @@
                 -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
             $changed = $true
         }
-        # Automatic update: every 15 min, installs only with AUTO_UPDATE="true" in zbx-patch.conf, in the maintenance window
-        $name = 'Zabbix patch auto update'
+        # Automatic update: every 15 min, installs only with AUTO_UPDATE="true" in patchbix.conf, in the maintenance window
+        $name = 'PatchBix auto update'
         $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
         if (-not ($t -and $t.Actions[0].Arguments -eq "$arg -AutoUpdate")) {
             $every15 = New-ScheduledTaskTrigger -Daily -At '00:00'
@@ -122,7 +122,7 @@
       changed_when: zbx_task.stdout | trim == 'changed'
 
     # Settings from Zabbix: the item patch.config delivers the host macros {$PATCH.CONF.*} to the agent,
-    # which writes them to zbx-patch-from-zbx-host-macro.cache (wins over zbx-patch.conf). The UserParameter
+    # which writes them to patchbix-from-zbx-host-macro.cache (wins over patchbix.conf). The UserParameter
     # goes into the agent Include folder, the agent is restarted only when it changed (undone when it
     # doesn't start).
     - name: Zabbix agent - UserParameter patch.config (settings from the host macros)

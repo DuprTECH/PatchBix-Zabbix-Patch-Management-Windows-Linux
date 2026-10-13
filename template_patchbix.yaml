@@ -5,10 +5,10 @@ zabbix_export:
       name: 'Templates/Operating systems'
   templates:
     - uuid: 5063f5f454c64dbd9a3f7fe7f79ca809
-      template: 'APP Patch management all OS'
-      name: 'APP Patch management all OS'
+      template: 'PatchBix - Patch management all OS'
+      name: 'PatchBix - Patch management all OS'
       description: |
-        OS independent patch management monitoring for Windows and Linux: one template, the same keys (patch.*) on all hosts,
+        PatchBix - Zabbix patch management. OS independent patch management monitoring for Windows and Linux: one template, the same keys (patch.*) on all hosts,
         so dashboards, triggers and reports work the same for every OS.
         Update management fully controlled from Zabbix, no extra port: the host macros {$PATCH.CONF.WINDOW} (maintenance
         window and update types), {$PATCH.CONF.AUTO_UPDATE} (automatic updates on / off), {$PATCH.CONF.EXCLUDE} (excluded
@@ -21,15 +21,15 @@ zabbix_export:
         - Last update installed (detected on the host) and its patch day, last install run (sent by the install job / Ansible)
         - OS name and version / kernel, update source and its availability, automatic updates, Windows Update service
         - Last check time, age, duration and result
-        - Patch settings of the host (zbx-patch.conf): maintenance window (when and which update types the
+        - Patch settings of the host (patchbix.conf): maintenance window (when and which update types the
           check script installs) and the next window, excluded updates (and how many pending updates they match), reboot allowed
-        - Host dashboard 'Patch management': overview, categories and severity, installs and history
+        - Host dashboard 'PatchBix': overview, categories and severity, installs and history
 
-        Data are sent with zabbix_sender (trapper items) by the check scripts zbx-patch-windows.ps1 and zbx-patch-linux.sh,
+        Data are sent with zabbix_sender (trapper items) by the check scripts patchbix-windows.ps1 and patchbix-linux.sh,
         started by Task Scheduler / cron or by the Zabbix agent. Values that can't be determined on an OS are not sent
         (for example severity on Ubuntu or on Debian without debsecan), so the item stays empty.
         Requirements: Zabbix 7.4+, zabbix_sender on the hosts.
-        Source: https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
+        Source: https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
         Contact / custom work: info@duprtech.sk
       groups:
         - name: 'Templates/Operating systems'
@@ -45,7 +45,7 @@ zabbix_export:
             Starts the check script through the Zabbix agent (needs AllowKey=system.run[*] in the agent config).
             Disabled by default: running the script from cron (as root) / Task Scheduler (as SYSTEM) is recommended.
             The command is in the macro {$PATCH.CHECK.CMD} (default: Linux). On Windows hosts set the host macro to:
-            start /low powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1"
+            start /low powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\patchbix-windows.ps1"
           tags:
             - tag: component
               value: check
@@ -62,7 +62,7 @@ zabbix_export:
               value: check
           triggers:
             - uuid: 2c28f0b2746643c696ab6a3a66b52c3b
-              expression: 'nodata(/APP Patch management all OS/patch.check.timestamp,{$PATCH.NODATA})=1'
+              expression: 'nodata(/PatchBix - Patch management all OS/patch.check.timestamp,{$PATCH.NODATA})=1'
               name: 'No update check data for {$PATCH.NODATA}'
               priority: WARNING
               description: 'The update check script has not sent any data. Check that it runs (cron / Task Scheduler / agent item) and that zabbix_sender can reach the Zabbix server / proxy.'
@@ -110,7 +110,7 @@ zabbix_export:
               value: check
           triggers:
             - uuid: 7b8d1cbf82404350a83dabe0adff5cd5
-              expression: 'find(/APP Patch management all OS/patch.check.result,,"regexp","^ERROR")=1'
+              expression: 'find(/PatchBix - Patch management all OS/patch.check.result,,"regexp","^ERROR")=1'
               name: 'Update check failed'
               opdata: '{ITEM.LASTVALUE1}'
               priority: WARNING
@@ -173,7 +173,7 @@ zabbix_export:
           history: 90d
           value_type: CHAR
           trends: '0'
-          description: 'Version of the check script on the host (zbx-patch-linux.sh / zbx-patch-windows.ps1), for example 26.10.10. Shows the hosts with an old script.'
+          description: 'Version of the check script on the host (patchbix-linux.sh / patchbix-windows.ps1), for example 26.10.10. Shows the hosts with an old script.'
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
@@ -212,7 +212,7 @@ zabbix_export:
               value: system
           triggers:
             - uuid: ad7440cf6ec9465ab7d18c7d50e95431
-              expression: 'last(/APP Patch management all OS/patch.source.available)=0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.source.available)=0'
               name: 'Update source is unavailable'
               priority: WARNING
               description: 'Windows: Windows Update search failed. Linux: a repository or proxy is unavailable.'
@@ -254,7 +254,7 @@ zabbix_export:
               value: system
           triggers:
             - uuid: 40e18b5e96bb46d69c9891a3e74dcb98
-              expression: 'last(/APP Patch management all OS/patch.autoupdate)=0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.autoupdate)=0'
               name: 'Automatic updates are disabled'
               status: DISABLED
               priority: INFO
@@ -264,7 +264,7 @@ zabbix_export:
                 - tag: scope
                   value: notice
             - uuid: 6bb51f7116b44fad9677ff758062d3a3
-              expression: 'last(/APP Patch management all OS/patch.autoupdate)=4 or last(/APP Patch management all OS/patch.autoupdate)=6 or last(/APP Patch management all OS/patch.autoupdate)=8'
+              expression: 'last(/PatchBix - Patch management all OS/patch.autoupdate)=4 or last(/PatchBix - Patch management all OS/patch.autoupdate)=6 or last(/PatchBix - Patch management all OS/patch.autoupdate)=8'
               name: 'Updates are installed automatically twice (patch management and the OS, Azure Update Manager or SCCM)'
               opdata: '{ITEM.LASTVALUE}'
               priority: WARNING
@@ -310,7 +310,7 @@ zabbix_export:
               value: system
           triggers:
             - uuid: 210438bacf314ce0a7b782b1d57c037c
-              expression: 'last(/APP Patch management all OS/patch.service.startup)=3'
+              expression: 'last(/PatchBix - Patch management all OS/patch.service.startup)=3'
               name: 'Windows Update service is disabled'
               priority: WARNING
               tags:
@@ -332,7 +332,7 @@ zabbix_export:
               value: updates
           triggers:
             - uuid: cd1757599ab246c6b0ad060cc2a11f75
-              expression: 'last(/APP Patch management all OS/patch.updates.all)>0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.updates.all)>0'
               name: 'Updates are available'
               opdata: 'Pending: {ITEM.LASTVALUE1}'
               status: DISABLED
@@ -358,13 +358,13 @@ zabbix_export:
               value: updates
           triggers:
             - uuid: 6124493653dc437fae65c1de79c36373
-              expression: 'last(/APP Patch management all OS/patch.updates.security)>0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.updates.security)>0'
               name: 'Security updates are available'
               opdata: 'Pending: {ITEM.LASTVALUE1}'
               priority: WARNING
               dependencies:
                 - name: 'Critical updates are available'
-                  expression: 'last(/APP Patch management all OS/patch.updates.critical)>0'
+                  expression: 'last(/PatchBix - Patch management all OS/patch.updates.critical)>0'
               tags:
                 - tag: service
                   value: patch-management
@@ -388,7 +388,7 @@ zabbix_export:
               value: updates
           triggers:
             - uuid: 98db03a7811d43cd936f554688d5c7fd
-              expression: 'last(/APP Patch management all OS/patch.updates.critical)>0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.updates.critical)>0'
               name: 'Critical updates are available'
               opdata: 'Pending: {ITEM.LASTVALUE1}'
               priority: HIGH
@@ -585,7 +585,7 @@ zabbix_export:
               value: reboot
           triggers:
             - uuid: ac78cd7e8b6f4d15b673fb379f9ed7c0
-              expression: 'last(/APP Patch management all OS/patch.reboot.required)<>0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.reboot.required)<>0'
               name: 'Reboot required to finish installing updates'
               priority: INFO
               tags:
@@ -596,7 +596,7 @@ zabbix_export:
                 - tag: UpdatePlan
                   value: '{INVENTORY.TYPE.FULL}'
             - uuid: c1fcf97ecbdb4377aedd4efa4964d167
-              expression: 'min(/APP Patch management all OS/patch.reboot.required,{$PATCH.REBOOT.MAXAGE})=1'
+              expression: 'min(/PatchBix - Patch management all OS/patch.reboot.required,{$PATCH.REBOOT.MAXAGE})=1'
               name: 'Reboot pending for more than {$PATCH.REBOOT.MAXAGE}'
               priority: WARNING
               description: 'Installed updates are not active until the host is rebooted.'
@@ -675,7 +675,7 @@ zabbix_export:
               value: lastupdate
           triggers:
             - uuid: 76c5fd446a684d5598c1de96640e5a58
-              expression: 'last(/APP Patch management all OS/patch.lastupdate.age)>{$PATCH.LASTUPDATE.MAXAGE} and last(/APP Patch management all OS/patch.updates.all)>0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.lastupdate.age)>{$PATCH.LASTUPDATE.MAXAGE} and last(/PatchBix - Patch management all OS/patch.updates.all)>0'
               name: 'No updates installed for more than {$PATCH.LASTUPDATE.MAXAGE}'
               opdata: 'Last update: {ITEM.LASTVALUE1} ago, pending: {ITEM.LASTVALUE2}'
               status: DISABLED
@@ -741,7 +741,7 @@ zabbix_export:
               value: install
           triggers:
             - uuid: a656888b4c4741619d1ade51bc6008e3
-              expression: 'last(/APP Patch management all OS/patch.install.status)=1'
+              expression: 'last(/PatchBix - Patch management all OS/patch.install.status)=1'
               name: 'Last update install run failed'
               priority: WARNING
               manual_close: 'YES'
@@ -802,7 +802,7 @@ zabbix_export:
           value_type: CHAR
           trends: '0'
           description: |
-            MAINTENANCE_WINDOW of the host (zbx-patch.conf or the host macro {$PATCH.CONF.WINDOW}): when and which updates the check
+            MAINTENANCE_WINDOW of the host (patchbix.conf or the host macro {$PATCH.CONF.WINDOW}): when and which updates the check
             script installs itself - "[<types>] <day> <HH:MM>-<HH:MM>", for example "* 3 03:00-05:00" (all updates on Wednesday) or
             "crit+sec * 02:00-03:00, * 6 03:00-06:00"; types * = all, crit, sec, kernel (Linux), def (Windows), joined with +;
             days 1-7 = Monday-Sunday or Mon..Sun. "-" = no window. The check script installs in the window only with AUTO_UPDATE="true".
@@ -816,19 +816,19 @@ zabbix_export:
               value: maintenance
           triggers:
             - uuid: 63dbdcea11774c53896b47ba7335df46
-              expression: 'last(/APP Patch management all OS/patch.maintenance.window)="-"'
+              expression: 'last(/PatchBix - Patch management all OS/patch.maintenance.window)="-"'
               name: 'No maintenance window configured'
               status: DISABLED
               priority: INFO
-              description: 'Set MAINTENANCE_WINDOW in zbx-patch.conf on the host.'
+              description: 'Set MAINTENANCE_WINDOW in patchbix.conf on the host.'
               tags:
                 - tag: service
                   value: patch-management
                 - tag: scope
                   value: notice
             - uuid: b41743c07d674c97a68914da99090654
-              expression: 'find(/APP Patch management all OS/patch.maintenance.window,,"like","invalid maintenance window")=1'
-              name: 'Invalid maintenance window in zbx-patch.conf'
+              expression: 'find(/PatchBix - Patch management all OS/patch.maintenance.window,,"like","invalid maintenance window")=1'
+              name: 'Invalid maintenance window in patchbix.conf'
               priority: WARNING
               description: 'The install job doesn''t install updates on this host until the window is fixed.'
               tags:
@@ -853,7 +853,7 @@ zabbix_export:
           key: patch.reboot.allowed
           history: 90d
           trends: 365d
-          description: 'REBOOT from the patch settings of the host (zbx-patch.conf): 1 - the install job may reboot the host, 0 - it only reports the reboot.'
+          description: 'REBOOT from the patch settings of the host (patchbix.conf): 1 - the install job may reboot the host, 0 - it only reports the reboot.'
           valuemap:
             name: Enabled
           tags:
@@ -887,8 +887,8 @@ zabbix_export:
           description: |
             Delivers the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}
             to the host: the agent (UserParameter patch.config, installed by the setup / --install-agent-config) validates them
-            and writes the set ones to zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf. Those keys win over
-            zbx-patch.conf, which is never changed from Zabbix. Empty macro = zbx-patch.conf stays in effect.
+            and writes the set ones to patchbix-from-zbx-host-macro.cache next to patchbix.conf. Those keys win over
+            patchbix.conf, which is never changed from Zabbix. Empty macro = patchbix.conf stays in effect.
             Value: OK, written / unchanged: <keys>, or ERROR: <reason> (then nothing is written).
             The agent forbids * " ' $ ; | # and other characters in the values: window type all = all updates and day 1-7 =
             every day (instead of *), none = no window (no automatic updates); exclude % = wildcard, none = nothing excluded.
@@ -898,7 +898,7 @@ zabbix_export:
               value: maintenance
           triggers:
             - uuid: 219feb389a8c46f6a4bb7eb492b678b1
-              expression: 'find(/APP Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"],,"like","ERROR")=1'
+              expression: 'find(/PatchBix - Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"],,"like","ERROR")=1'
               name: 'Patch settings in the host macros are invalid'
               opdata: '{ITEM.LASTVALUE}'
               priority: WARNING
@@ -918,8 +918,8 @@ zabbix_export:
           description: |
             The patch settings that are set on the host, each with its source, for example:
             ✎ window: crit+sec * 02:00-03:00, ✎ auto update: true, ▤ reboot: false
-            ✎ = Zabbix host macro {$PATCH.CONF.*} (zbx-patch-from-zbx-host-macro.cache, wins over zbx-patch.conf),
-            ▤ = zbx-patch.conf on the host. Empty = nothing set: check only, reboot when needed, nothing excluded.
+            ✎ = Zabbix host macro {$PATCH.CONF.*} (patchbix-from-zbx-host-macro.cache, wins over patchbix.conf),
+            ▤ = patchbix.conf on the host. Empty = nothing set: check only, reboot when needed, nothing excluded.
             The check script sends [S] / [C], the preprocessing replaces them with the symbols (Unicode BMP characters,
             they work also with a MySQL database in utf8).
           preprocessing:
@@ -945,7 +945,7 @@ zabbix_export:
           value_type: TEXT
           trends: '0'
           description: |
-            EXCLUDE from the patch settings of the host (zbx-patch.conf): updates the install job doesn't install. "-" = none.
+            EXCLUDE from the patch settings of the host (patchbix.conf): updates the install job doesn't install. "-" = none.
             Linux: package names, wildcards allowed (kernel*, docker-ce). Windows: KB number or a part of the title (KB5034441, Preview).
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
@@ -966,7 +966,7 @@ zabbix_export:
               value: updates
       dashboards:
         - uuid: 9a18e36191fa474480805734737206a8
-          name: 'Patch management'
+          name: PatchBix
           display_period: '60'
           auto_start: 'NO'
           pages:
@@ -980,7 +980,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.all
                     - type: INTEGER
                       name: show.0
@@ -1009,7 +1009,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.security
                     - type: INTEGER
                       name: show.0
@@ -1038,7 +1038,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.critical
                     - type: INTEGER
                       name: show.0
@@ -1067,7 +1067,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.kernel
                     - type: INTEGER
                       name: show.0
@@ -1090,7 +1090,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.held
                     - type: INTEGER
                       name: show.0
@@ -1107,7 +1107,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.reboot.required
                     - type: INTEGER
                       name: show.0
@@ -1139,7 +1139,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.lastupdate.age
                     - type: INTEGER
                       name: show.0
@@ -1171,7 +1171,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.lastboot.age
                     - type: INTEGER
                       name: show.0
@@ -1197,7 +1197,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.autoupdate
                     - type: INTEGER
                       name: show.0
@@ -1218,7 +1218,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.autoupdate.detail
                     - type: INTEGER
                       name: show.0
@@ -1239,7 +1239,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.check.age
                     - type: INTEGER
                       name: show.0
@@ -1266,7 +1266,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.check.result
                     - type: INTEGER
                       name: show.0
@@ -1298,7 +1298,7 @@ zabbix_export:
                     - type: ITEM
                       name: columns.0.itemid
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.list
                     - type: INTEGER
                       name: columns.0.max_length
@@ -1328,7 +1328,7 @@ zabbix_export:
                     - type: ITEM
                       name: columns.0.itemid
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.history
                     - type: INTEGER
                       name: columns.0.max_length
@@ -1366,7 +1366,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.all
                     - type: STRING
                       name: ds.0.color.0
@@ -1374,7 +1374,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.1
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.security
                     - type: STRING
                       name: ds.0.color.1
@@ -1382,7 +1382,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.2
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.critical
                     - type: STRING
                       name: ds.0.color.2
@@ -1390,7 +1390,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.3
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.kernel
                     - type: STRING
                       name: ds.0.color.3
@@ -1432,7 +1432,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.reboot.required
                     - type: STRING
                       name: ds.0.color.0
@@ -1455,7 +1455,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.1.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.lastboot.age
                     - type: STRING
                       name: ds.1.color.0
@@ -1511,7 +1511,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.autoupdate.config
                     - type: INTEGER
                       name: show.0
@@ -1538,7 +1538,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.maintenance.next
                     - type: INTEGER
                       name: show.0
@@ -1556,7 +1556,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.reboot.allowed
                     - type: INTEGER
                       name: show.0
@@ -1577,7 +1577,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.exclude
                     - type: INTEGER
                       name: show.0
@@ -1595,7 +1595,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.excluded
                     - type: INTEGER
                       name: show.0
@@ -1610,7 +1610,7 @@ zabbix_export:
                       name: thresholds.0.threshold
                       value: '1'
                 - type: item
-                  name: 'Config (✎ Zabbix macro, ▤ zbx-patch.conf)'
+                  name: 'Config (✎ Zabbix macro, ▤ patchbix.conf)'
                   'y': '9'
                   width: '48'
                   height: '3'
@@ -1618,7 +1618,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.config.override
                     - type: INTEGER
                       name: show.0
@@ -1636,7 +1636,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
                     - type: INTEGER
                       name: show.0
@@ -1657,7 +1657,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.security
                     - type: STRING
                       name: ds.0.color.0
@@ -1665,7 +1665,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.1
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.critical
                     - type: STRING
                       name: ds.0.color.1
@@ -1673,7 +1673,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.2
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.bugfix
                     - type: STRING
                       name: ds.0.color.2
@@ -1681,7 +1681,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.3
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.enhancement
                     - type: STRING
                       name: ds.0.color.3
@@ -1689,7 +1689,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.4
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.definition
                     - type: STRING
                       name: ds.0.color.4
@@ -1697,7 +1697,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.5
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.servicepacks
                     - type: STRING
                       name: ds.0.color.5
@@ -1705,7 +1705,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.6
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.updaterollups
                     - type: STRING
                       name: ds.0.color.6
@@ -1713,7 +1713,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.7
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.drivers
                     - type: STRING
                       name: ds.0.color.7
@@ -1721,7 +1721,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.8
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.upgrades
                     - type: STRING
                       name: ds.0.color.8
@@ -1762,7 +1762,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.critical
                     - type: STRING
                       name: ds.0.color.0
@@ -1770,7 +1770,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.1
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.important
                     - type: STRING
                       name: ds.0.color.1
@@ -1778,7 +1778,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.2
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.moderate
                     - type: STRING
                       name: ds.0.color.2
@@ -1786,7 +1786,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.3
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.low
                     - type: STRING
                       name: ds.0.color.3
@@ -1845,7 +1845,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.security
                     - type: STRING
                       name: ds.0.color.0
@@ -1853,7 +1853,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.1
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.critical
                     - type: STRING
                       name: ds.0.color.1
@@ -1861,7 +1861,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.2
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.bugfix
                     - type: STRING
                       name: ds.0.color.2
@@ -1869,7 +1869,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.3
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.enhancement
                     - type: STRING
                       name: ds.0.color.3
@@ -1877,7 +1877,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.4
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.definition
                     - type: STRING
                       name: ds.0.color.4
@@ -1885,7 +1885,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.5
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.servicepacks
                     - type: STRING
                       name: ds.0.color.5
@@ -1893,7 +1893,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.6
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.updaterollups
                     - type: STRING
                       name: ds.0.color.6
@@ -1901,7 +1901,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.7
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.drivers
                     - type: STRING
                       name: ds.0.color.7
@@ -1909,7 +1909,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.8
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.upgrades
                     - type: STRING
                       name: ds.0.color.8
@@ -1962,7 +1962,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.critical
                     - type: STRING
                       name: ds.0.color.0
@@ -1970,7 +1970,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.1
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.important
                     - type: STRING
                       name: ds.0.color.1
@@ -1978,7 +1978,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.2
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.moderate
                     - type: STRING
                       name: ds.0.color.2
@@ -1986,7 +1986,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.3
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.updates.severity.low
                     - type: STRING
                       name: ds.0.color.3
@@ -2019,7 +2019,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.timestamp
                     - type: INTEGER
                       name: show.0
@@ -2039,7 +2039,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.status
                     - type: INTEGER
                       name: show.0
@@ -2071,7 +2071,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.count
                     - type: INTEGER
                       name: show.0
@@ -2088,7 +2088,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.failed
                     - type: INTEGER
                       name: show.0
@@ -2117,7 +2117,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.lastupdate.timestamp
                     - type: INTEGER
                       name: show.0
@@ -2137,7 +2137,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.lastboot
                     - type: INTEGER
                       name: show.0
@@ -2157,7 +2157,7 @@ zabbix_export:
                     - type: ITEM
                       name: itemid.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.script.version
                     - type: INTEGER
                       name: show.0
@@ -2195,7 +2195,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.count
                     - type: STRING
                       name: ds.0.color.0
@@ -2203,7 +2203,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.1
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.failed
                     - type: STRING
                       name: ds.0.color.1
@@ -2254,7 +2254,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.0
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.lastupdate.age
                     - type: STRING
                       name: ds.0.color.0
@@ -2262,7 +2262,7 @@ zabbix_export:
                     - type: ITEM
                       name: ds.0.itemids.1
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.lastboot.age
                     - type: STRING
                       name: ds.0.color.1
@@ -2300,7 +2300,7 @@ zabbix_export:
                     - type: ITEM
                       name: columns.0.itemid
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.result
                     - type: INTEGER
                       name: columns.0.max_length
@@ -2330,7 +2330,7 @@ zabbix_export:
                     - type: ITEM
                       name: columns.0.itemid
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.install.list
                     - type: INTEGER
                       name: columns.0.max_length
@@ -2359,7 +2359,7 @@ zabbix_export:
                     - type: ITEM
                       name: columns.0.itemid
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.os.version
                     - type: INTEGER
                       name: columns.0.max_length
@@ -2389,7 +2389,7 @@ zabbix_export:
                     - type: ITEM
                       name: columns.0.itemid
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.check.result
                     - type: INTEGER
                       name: columns.0.max_length
@@ -2403,24 +2403,24 @@ zabbix_export:
                     - type: ITEM
                       name: columns.1.itemid
                       value:
-                        host: 'APP Patch management all OS'
+                        host: 'PatchBix - Patch management all OS'
                         key: patch.check.duration
       macros:
         - macro: '{$PATCH.CHECK.CMD}'
-          value: /usr/local/bin/zbx-patch-linux.sh
+          value: /usr/local/bin/patchbix-linux.sh
           description: 'Command of the item "Patch - Run update check". Override on Windows hosts (see the item description).'
         - macro: '{$PATCH.CONF.AUTO_UPDATE}'
           value: ''
-          description: 'Host setting from Zabbix (overrides AUTO_UPDATE of zbx-patch.conf): true = the check script installs the update types of the maintenance window in it, false = check only. Empty = zbx-patch.conf (not set there = false).'
+          description: 'Host setting from Zabbix (overrides AUTO_UPDATE of patchbix.conf): true = the check script installs the update types of the maintenance window in it, false = check only. Empty = patchbix.conf (not set there = false).'
         - macro: '{$PATCH.CONF.EXCLUDE}'
           value: ''
-          description: 'Host setting from Zabbix (overrides EXCLUDE of zbx-patch.conf): updates that are not installed, comma separated (Linux: packages, Windows: KB or a part of the title), % = wildcard (kernel%), none = nothing excluded. Empty = zbx-patch.conf.'
+          description: 'Host setting from Zabbix (overrides EXCLUDE of patchbix.conf): updates that are not installed, comma separated (Linux: packages, Windows: KB or a part of the title), % = wildcard (kernel%), none = nothing excluded. Empty = patchbix.conf.'
         - macro: '{$PATCH.CONF.REBOOT}'
           value: ''
-          description: 'Host setting from Zabbix (overrides REBOOT of zbx-patch.conf): true = reboot after updates when needed, false = only report it. Empty = zbx-patch.conf.'
+          description: 'Host setting from Zabbix (overrides REBOOT of patchbix.conf): true = reboot after updates when needed, false = only report it. Empty = patchbix.conf.'
         - macro: '{$PATCH.CONF.WINDOW}'
           value: ''
-          description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of zbx-patch.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun (1-7 = every day), 1-5, 2.3 = 2nd Wednesday. Examples: all 3 03:00-05:00, crit+sec 1-7 02:00-03:00. none = no window. The automatic updates need {$PATCH.CONF.AUTO_UPDATE} = true (or AUTO_UPDATE="true" in zbx-patch.conf). Empty = zbx-patch.conf.'
+          description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of patchbix.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun (1-7 = every day), 1-5, 2.3 = 2nd Wednesday. Examples: all 3 03:00-05:00, crit+sec 1-7 02:00-03:00. none = no window. The automatic updates need {$PATCH.CONF.AUTO_UPDATE} = true (or AUTO_UPDATE="true" in patchbix.conf). Empty = patchbix.conf.'
         - macro: '{$PATCH.LASTUPDATE.MAXAGE}'
           value: 45d
           description: 'Alert when no updates were installed for this time and updates are pending (trigger disabled by default)'
