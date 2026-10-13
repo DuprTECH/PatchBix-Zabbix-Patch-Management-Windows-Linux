@@ -94,7 +94,9 @@ monitor() {
     if [ "$(. /etc/os-release 2>/dev/null && echo "$ID")" = debian ] && ! command -v debsecan >/dev/null 2>&1; then
         # no daily report mails of its own cron job
         echo "debsecan debsecan/report boolean false" | debconf-set-selections 2>/dev/null
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq debsecan >/dev/null 2>&1 \
+        # fresh package lists, without the recommended packages (exim4 - a mail server)
+        apt-get update -qq >/dev/null 2>&1
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends debsecan >/dev/null 2>&1 \
             || warn "debsecan is not installed - the severity (critical updates) stays n/a. Install the package debsecan."
     fi
     # Check every INTERVAL_HOURS (shifted by a per-host offset of -30..+30 min) and after a reboot,

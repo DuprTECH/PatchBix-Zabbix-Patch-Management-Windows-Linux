@@ -112,6 +112,11 @@
           ansible.builtin.apt:
             name: debsecan
             state: present
+            # fresh package lists (old ones point to versions no longer in the mirror - 404),
+            # without the recommended packages (exim4 - a mail server)
+            update_cache: true
+            cache_valid_time: 3600
+            install_recommends: false
           register: debsecan_pkg
           failed_when: false
 
