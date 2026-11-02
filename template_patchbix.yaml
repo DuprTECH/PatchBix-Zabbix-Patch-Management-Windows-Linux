@@ -64,6 +64,7 @@ zabbix_export:
             - uuid: 2c28f0b2746643c696ab6a3a66b52c3b
               expression: 'nodata(/PatchBix - Patch management all OS/patch.check.timestamp,{$PATCH.NODATA})=1'
               name: 'No update check data for {$PATCH.NODATA}'
+              status: DISABLED
               priority: WARNING
               description: 'The update check script has not sent any data. Check that it runs (cron / Task Scheduler / agent item) and that zabbix_sender can reach the Zabbix server / proxy.'
               tags:
@@ -266,6 +267,7 @@ zabbix_export:
             - uuid: 6bb51f7116b44fad9677ff758062d3a3
               expression: 'last(/PatchBix - Patch management all OS/patch.autoupdate)=4 or last(/PatchBix - Patch management all OS/patch.autoupdate)=6 or last(/PatchBix - Patch management all OS/patch.autoupdate)=8'
               name: 'Updates are installed automatically twice (patch management and the OS, Azure Update Manager or SCCM)'
+              status: DISABLED
               opdata: '{ITEM.LASTVALUE}'
               priority: WARNING
               description: 'A maintenance window is set (patch management installs the updates) and the automatic updates of the OS (4) or a scheduled patching of Azure Update Manager (6) or SCCM software updates (8) are enabled too - disable one of them (onboarding disables the OS automatic updates; the Azure schedule is in the maintenance configuration of the Arc machine, SCCM in the client settings / deployments).'
@@ -360,6 +362,7 @@ zabbix_export:
             - uuid: 6124493653dc437fae65c1de79c36373
               expression: 'last(/PatchBix - Patch management all OS/patch.updates.security)>0'
               name: 'Security updates are available'
+              status: DISABLED
               opdata: 'Pending: {ITEM.LASTVALUE1}'
               priority: WARNING
               dependencies:
@@ -587,6 +590,7 @@ zabbix_export:
             - uuid: ac78cd7e8b6f4d15b673fb379f9ed7c0
               expression: 'last(/PatchBix - Patch management all OS/patch.reboot.required)<>0'
               name: 'Reboot required to finish installing updates'
+              status: DISABLED
               priority: INFO
               tags:
                 - tag: service
@@ -678,7 +682,6 @@ zabbix_export:
               expression: 'last(/PatchBix - Patch management all OS/patch.lastupdate.age)>{$PATCH.LASTUPDATE.MAXAGE} and last(/PatchBix - Patch management all OS/patch.updates.all)>0'
               name: 'No updates installed for more than {$PATCH.LASTUPDATE.MAXAGE}'
               opdata: 'Last update: {ITEM.LASTVALUE1} ago, pending: {ITEM.LASTVALUE2}'
-              status: DISABLED
               priority: WARNING
               tags:
                 - tag: service
@@ -2422,8 +2425,8 @@ zabbix_export:
           value: ''
           description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of patchbix.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun (1-7 = every day), 1-5, 2.3 = 2nd Wednesday. Examples: all 3 03:00-05:00, crit+sec 1-7 02:00-03:00. none = no window. The automatic updates need {$PATCH.CONF.AUTO_UPDATE} = true (or AUTO_UPDATE="true" in patchbix.conf). Empty = patchbix.conf.'
         - macro: '{$PATCH.LASTUPDATE.MAXAGE}'
-          value: 45d
-          description: 'Alert when no updates were installed for this time and updates are pending (trigger disabled by default)'
+          value: 7d
+          description: 'Alert when no updates were installed for this time and updates are pending'
         - macro: '{$PATCH.NODATA}'
           value: 2d
           description: 'Alert when the check script sends no data for this time'
