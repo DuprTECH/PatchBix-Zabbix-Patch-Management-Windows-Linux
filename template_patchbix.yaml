@@ -346,6 +346,18 @@ zabbix_export:
                   value: notice
                 - tag: UpdatePlan
                   value: '{INVENTORY.TYPE.FULL}'
+        - uuid: 52eb3393cb8b4d59ae46840833e88fbc
+          name: 'Patch - Updates: Actionable'
+          type: CALCULATED
+          key: patch.updates.actionable
+          delay: 5m
+          history: 90d
+          trends: 365d
+          params: 'last(//patch.updates.all)-last(//patch.updates.definition)-last(//patch.updates.drivers)'
+          description: 'Pending updates without definition updates and drivers (PatchBix does not install drivers, definitions come several times a day). Used by the summary count of hosts with pending updates.'
+          tags:
+            - tag: component
+              value: updates
         - uuid: a7745bb29381434ab2ceef3fcbcfbc16
           name: 'Patch - Updates: Security'
           type: TRAP

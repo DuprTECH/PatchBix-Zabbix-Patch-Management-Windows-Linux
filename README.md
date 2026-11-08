@@ -79,6 +79,7 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Item | Key | Windows | Linux |
 |------|-----|---------|-------|
 | Updates: All | `patch.updates.all` | updates and drivers (not hidden) | packages to upgrade / install |
+| Updates: Actionable | `patch.updates.actionable` | calculated: all without definitions and drivers | calculated: same as all |
 | Updates: Security | `patch.updates.security` | Security Updates | security advisory (dnf / yum), `*-security` suite (apt) |
 | Updates: Critical | `patch.updates.critical` | Critical Updates | security advisory with severity Critical (dnf / yum), CVE of urgency high (Debian + debsecan), not sent on Ubuntu |
 | Updates: Bugfix / Enhancement | `patch.updates.bugfix`, `.enhancement` | Updates / Feature Packs | bugfix / enhancement advisory (dnf / yum), not sent on apt |
