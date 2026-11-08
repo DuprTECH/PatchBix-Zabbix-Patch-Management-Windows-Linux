@@ -40,6 +40,8 @@
 .PARAMETER IncludeDefinitionHistory
     Include definition updates (Microsoft Defender) in the update history and in the last update
     date. They are installed several times a day, so they are left out by default.
+    Microsoft Store app updates (for example 9NRZT3Q9R3DL-Microsoft.WindowsAppRuntime) are always left out,
+    they are not Windows updates.
 
 .PARAMETER PatchConfig
     Patch settings of the host (default: patchbix.conf in the folder of the agent config).
@@ -122,7 +124,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.13'
+$ScriptVersion = '26.11.08'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -180,6 +182,12 @@ function Clean([string]$Value) { $Value -replace '"', "'" }
 function Test-Definition($Entry) {
     try { foreach ($c in $Entry.Categories) { if ("$($c.CategoryID)".ToLower() -eq $DefinitionId) { return $true } } } catch {}
     "$($Entry.Title)" -match 'Security Intelligence Update|Definition Update|KB2267602|KB915597'
+}
+
+# Microsoft Store app update in the update history (installed by the Store, not a Windows update):
+# by the client application, or by the title <Store product ID>-<package name>
+function Test-StoreApp($Entry) {
+    "$($Entry.ClientApplicationID)" -match 'Store' -or "$($Entry.Title)" -match '^[0-9A-Z]{12}-[\w.]+$'
 }
 
 # ---------------- Patch settings (patchbix.conf) ----------------
@@ -728,6 +736,7 @@ try {
         foreach ($e in $searcher.QueryHistory(0, [Math]::Min($total, 1000))) {
             if (-not $e.Title) { continue }
             if (-not $IncludeDefinitionHistory -and (Test-Definition $e)) { continue }
+            if (Test-StoreApp $e) { continue }
             $date = [DateTime]::SpecifyKind($e.Date, [DateTimeKind]::Utc).ToLocalTime()
             if (-not $lastUpdate -and $e.Operation -eq 1 -and $e.ResultCode -in 2, 3) { $lastUpdate = $date }
             if ($history.Count -lt $HistoryLines) {

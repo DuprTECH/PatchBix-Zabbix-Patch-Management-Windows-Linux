@@ -87,10 +87,10 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Updates: Definition, Service packs, Update rollups, Drivers, Upgrades | `patch.updates.definition`, `.servicepacks`, `.updaterollups`, `.drivers`, `.upgrades` | by classification | 0 |
 | Severity: Critical / Important / Moderate / Low | `patch.updates.severity.critical`, `.important`, `.moderate`, `.low` | MSRC severity | advisory severity (dnf / yum), CVE urgency (Debian + debsecan), not sent on Ubuntu |
 | Pending updates list | `patch.updates.list` | `[security] [Critical] KB… - title` | `[security] [Important] package version` |
-| Update history | `patch.history` | Windows Update history (without definition updates) | `/var/log/apt/history.log`, rpm install time |
+| Update history | `patch.history` | Windows Update history (without definition updates and Microsoft Store app updates) | `/var/log/apt/history.log`, rpm install time |
 | Reboot required / reason | `patch.reboot.required`, `patch.reboot.reason` | Windows Update, Component Based Servicing | `reboot-required`, `needs-restarting`, newer kernel installed |
 | Last reboot time / time since | `patch.lastboot`, `patch.lastboot.age` | ✔ | ✔ |
-| Last update installed / age / patch day | `patch.lastupdate.timestamp`, `.age`, `.patchday` | detected on the host | detected on the host |
+| Last update installed / age / patch day | `patch.lastupdate.timestamp`, `.age`, `.patchday` | Windows Update history (without definition updates and Microsoft Store app updates) | detected on the host |
 | OS family / name / version | `patch.os`, `patch.os.name`, `patch.os.version` | build with UBR | distribution, running kernel |
 | Check script version | `patch.script.version` | `$ScriptVersion` in the script, for example `26.10.10` | `SCRIPT_VERSION` in the script |
 | Update source / availability | `patch.source`, `patch.source.available` | Windows Update or `WSUS <server>`, search succeeded | package manager, repositories reachable |
