@@ -77,6 +77,12 @@
 .PARAMETER Force
     With -Update: install all updates, also outside a maintenance window.
 
+.PARAMETER ResendInstall
+    Send the result of the last install run to Zabbix again, with the time of the run
+    (saved in C:\ProgramData\patchbix\install-result.json). For a result that Zabbix didn't keep, for
+    example when the host was in a Zabbix maintenance "No data collection" during the install run -
+    Zabbix confirms such values as processed and drops them.
+
 .PARAMETER ZabbixConfig
     For the Zabbix agent (UserParameter patch.config): "<window>|<auto update>|<exclude>|<reboot>", the
     values of the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}. The set (non empty) ones are validated and written to
@@ -116,6 +122,7 @@ param(
     [switch]$Update,
     [switch]$AutoUpdate,
     [switch]$Force,
+    [switch]$ResendInstall,
     [string]$ZabbixConfig,
     [switch]$InstallAgentConfig,
     [switch]$SendConfig
@@ -574,6 +581,37 @@ function Get-RebootReasons {
     $r
 }
 
+# ---------------- Result of the install run (patch.install.*) ----------------
+# Saved in install-result.json, so -ResendInstall can send it again. The values are sent with the time
+# of the run (-T); the list of the installed updates is multi-line, so it is sent separately.
+# The response of zabbix_sender goes to the output (update.log): Zabbix answers "processed" also for
+# values it drops (host in a maintenance "No data collection").
+$installResultPath = Join-Path $stateDir 'install-result.json'
+function Send-InstallResult($Run) {
+    $lines = @(
+        "- patch.install.timestamp $($Run.clock) $($Run.clock)",
+        "- patch.install.status $($Run.clock) $($Run.status)",
+        "- patch.install.count $($Run.clock) $($Run.count)",
+        "- patch.install.failed $($Run.clock) $($Run.failed)",
+        "- patch.install.result $($Run.clock) $(Q $Run.result)"
+    )
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+        [System.IO.File]::WriteAllLines($tmp, [string[]]$lines, (New-Object System.Text.UTF8Encoding $false))
+        Send-ToZabbix -SenderArgs @('-T', '-i', $tmp) | Out-Host
+    } finally {
+        Remove-Item $tmp -ErrorAction SilentlyContinue
+    }
+    Send-ToZabbix -SenderArgs @('-k', 'patch.install.list', '-o', $Run.list) | Out-Host
+}
+if ($ResendInstall) {
+    if (-not (Test-Path $installResultPath)) { Write-Output "No saved install run result ($installResultPath)"; exit 1 }
+    $run = Get-Content $installResultPath -Raw | ConvertFrom-Json
+    Write-Output ("Sending the install run result of {0:yyyy-MM-dd HH:mm} again: {1}" -f [DateTimeOffset]::FromUnixTimeSeconds($run.clock).LocalDateTime, $run.result)
+    Send-InstallResult $run
+    exit 0
+}
+
 # ---------------- Install updates (-Update) ----------------
 # Like the Ansible playbook: security, critical, update rollups, definitions and updates without EXCLUDE,
 # reboot when needed and allowed; the result goes to the patch.install.* items
@@ -644,12 +682,14 @@ function Install-Updates {
     Write-Host $result
     $status = if ($err -or $failed.Count -gt 0) { 1 } else { 0 }
     $text   = if ($list.Count -gt 0) { $list -join "`n" } else { 'No updates installed' }
-    Send-ToZabbix -SenderArgs @('-k', 'patch.install.timestamp', '-o', (ConvertTo-Epoch (Get-Date))) | Out-Null
-    Send-ToZabbix -SenderArgs @('-k', 'patch.install.status', '-o', $status) | Out-Null
-    Send-ToZabbix -SenderArgs @('-k', 'patch.install.count', '-o', $installed.Count) | Out-Null
-    Send-ToZabbix -SenderArgs @('-k', 'patch.install.failed', '-o', $failed.Count) | Out-Null
-    Send-ToZabbix -SenderArgs @('-k', 'patch.install.list', '-o', (Clean $text)) | Out-Null
-    Send-ToZabbix -SenderArgs @('-k', 'patch.install.result', '-o', (Clean $result)) | Out-Null
+    $run = [ordered]@{ clock = (ConvertTo-Epoch (Get-Date)); status = $status; count = $installed.Count; failed = $failed.Count
+                       list = (Clean $text); result = (Clean $result) }
+    try {
+        New-Item -ItemType Directory -Force $stateDir | Out-Null
+        [System.IO.File]::WriteAllText($installResultPath, ($run | ConvertTo-Json), (New-Object System.Text.UTF8Encoding $false))
+    } catch {}
+    Write-Host '=== Sending the result to Zabbix'
+    Send-InstallResult $run
     if ($doReboot) {
         Send-ToZabbix -SenderArgs @('-k', 'patch.reboot.required', '-o', 0) | Out-Null
         # The check runs again after the reboot (startup trigger of the task "PatchBix check")
