@@ -106,7 +106,7 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Excluded updates (config) / pending excluded | `patch.exclude`, `patch.updates.excluded` | KB or a part of the title | package names (wildcards) |
 | Reboot allowed | `patch.reboot.allowed` | `patchbix.conf` | `patchbix.conf` |
 
-**Triggers**: critical updates (High), no updates installed for `{$PATCH.LASTUPDATE.MAXAGE}` and updates pending (Warning), reboot pending for more than `{$PATCH.REBOOT.MAXAGE}` (Warning), update source unavailable (Warning), update check failed (Warning), Windows Update service disabled (Warning), last install run failed (Warning), invalid maintenance window (Warning); *disabled by default*: security updates (Warning), reboot required (Info), no data for `{$PATCH.NODATA}` (Warning), updates installed automatically by the OS and by patch management at the same time (Warning), no maintenance window configured (Info), updates available (Info), automatic updates disabled (Info). All triggers have the tag `service: patch-management`.
+**Triggers**: critical updates (High), no updates installed for `{$PATCH.LASTUPDATE.MAXAGE}` and security or critical updates pending (Warning), reboot pending for more than `{$PATCH.REBOOT.MAXAGE}` (Warning), update source unavailable (Warning), update check failed (Warning), Windows Update service disabled (Warning), last install run failed (Warning), invalid maintenance window (Warning); *disabled by default*: security updates (Warning), reboot required (Info), no data for `{$PATCH.NODATA}` (Warning), updates installed automatically by the OS and by patch management at the same time (Warning), no maintenance window configured (Info), updates available (Info), automatic updates disabled (Info). All triggers have the tag `service: patch-management`.
 
 All times are sent as unix timestamps, so no time zone macros are needed. The patch day is stored in the host inventory field *Type (Full details)* and used in the trigger tag `UpdatePlan`, so you can filter problems by patch window.
 
@@ -309,7 +309,7 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 |-------|---------|-------------|
 | `{$PATCH.NODATA}` | `2d` | Alert when the check script sends no data for this time |
 | `{$PATCH.REBOOT.MAXAGE}` | `7d` | Alert when a reboot is pending for this time |
-| `{$PATCH.LASTUPDATE.MAXAGE}` | `7d` | Alert when no updates were installed for this time and updates are pending |
+| `{$PATCH.LASTUPDATE.MAXAGE}` | `7d` | Alert when no updates were installed for this time and security or critical updates are pending (drivers, definitions and other updates alone do not alert) |
 | `{$PATCH.CHECK.CMD}` | `/usr/local/bin/patchbix-linux.sh` | Command of the agent item *Patch - Run update check* |
 | `{$PATCH.CONF.WINDOW}`, `{$PATCH.CONF.AUTO_UPDATE}`, `{$PATCH.CONF.EXCLUDE}`, `{$PATCH.CONF.REBOOT}` | empty | Patch settings from Zabbix, override `patchbix.conf` – see [Settings from Zabbix](#settings-from-zabbix-host-macros) |
 

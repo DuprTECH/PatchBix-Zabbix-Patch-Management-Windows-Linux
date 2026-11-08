@@ -679,9 +679,9 @@ zabbix_export:
               value: lastupdate
           triggers:
             - uuid: 76c5fd446a684d5598c1de96640e5a58
-              expression: 'last(/PatchBix - Patch management all OS/patch.lastupdate.age)>{$PATCH.LASTUPDATE.MAXAGE} and last(/PatchBix - Patch management all OS/patch.updates.all)>0'
+              expression: 'last(/PatchBix - Patch management all OS/patch.lastupdate.age)>{$PATCH.LASTUPDATE.MAXAGE} and (last(/PatchBix - Patch management all OS/patch.updates.security)>0 or last(/PatchBix - Patch management all OS/patch.updates.critical)>0)'
               name: 'No updates installed for more than {$PATCH.LASTUPDATE.MAXAGE}'
-              opdata: 'Last update: {ITEM.LASTVALUE1} ago, pending: {ITEM.LASTVALUE2}'
+              opdata: 'Last update: {ITEM.LASTVALUE1} ago, pending security: {ITEM.LASTVALUE2}, critical: {ITEM.LASTVALUE3}'
               priority: WARNING
               tags:
                 - tag: service
