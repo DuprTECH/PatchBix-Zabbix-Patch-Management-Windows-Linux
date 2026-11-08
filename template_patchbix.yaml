@@ -2025,6 +2025,15 @@ zabbix_export:
                         host: 'PatchBix - Patch management all OS'
                         key: patch.install.timestamp
                     - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: STRING
+                      name: time_period.from
+                      value: 'now-90d'
+                    - type: STRING
+                      name: time_period.to
+                      value: 'now'
+                    - type: INTEGER
                       name: show.0
                       value: '2'
                     - type: INTEGER
@@ -2044,6 +2053,15 @@ zabbix_export:
                       value:
                         host: 'PatchBix - Patch management all OS'
                         key: patch.install.status
+                    - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: STRING
+                      name: time_period.from
+                      value: 'now-90d'
+                    - type: STRING
+                      name: time_period.to
+                      value: 'now'
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -2077,6 +2095,15 @@ zabbix_export:
                         host: 'PatchBix - Patch management all OS'
                         key: patch.install.count
                     - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: STRING
+                      name: time_period.from
+                      value: 'now-90d'
+                    - type: STRING
+                      name: time_period.to
+                      value: 'now'
+                    - type: INTEGER
                       name: show.0
                       value: '2'
                     - type: INTEGER
@@ -2093,6 +2120,15 @@ zabbix_export:
                       value:
                         host: 'PatchBix - Patch management all OS'
                         key: patch.install.failed
+                    - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: STRING
+                      name: time_period.from
+                      value: 'now-90d'
+                    - type: STRING
+                      name: time_period.to
+                      value: 'now'
                     - type: INTEGER
                       name: show.0
                       value: '2'
