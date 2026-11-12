@@ -310,7 +310,7 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 |-------|---------|-------------|
 | `{$PATCH.NODATA}` | `2d` | Alert when the check script sends no data for this time |
 | `{$PATCH.REBOOT.MAXAGE}` | `7d` | Alert when a reboot is pending for this time |
-| `{$PATCH.LASTUPDATE.MAXAGE}` | `7d` | Alert when no updates were installed for this time and security or critical updates are pending (drivers, definitions and other updates alone do not alert) |
+| `{$PATCH.LASTUPDATE.MAXAGE}` | `30d` | Alert when no updates were installed for this time and security or critical updates are pending (drivers, definitions and other updates alone do not alert) |
 | `{$PATCH.CHECK.CMD}` | `/usr/local/bin/patchbix-linux.sh` | Command of the agent item *Patch - Run update check* |
 | `{$PATCH.CONF.WINDOW}`, `{$PATCH.CONF.AUTO_UPDATE}`, `{$PATCH.CONF.EXCLUDE}`, `{$PATCH.CONF.REBOOT}` | empty | Patch settings from Zabbix, override `patchbix.conf` – see [Settings from Zabbix](#settings-from-zabbix-host-macros) |
 

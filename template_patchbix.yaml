@@ -2473,7 +2473,7 @@ zabbix_export:
           value: ''
           description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of patchbix.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun (1-7 = every day), 1-5, 2.3 = 2nd Wednesday. Examples: all 3 03:00-05:00, crit+sec 1-7 02:00-03:00. none = no window. The automatic updates need {$PATCH.CONF.AUTO_UPDATE} = true (or AUTO_UPDATE="true" in patchbix.conf). Empty = patchbix.conf.'
         - macro: '{$PATCH.LASTUPDATE.MAXAGE}'
-          value: 7d
+          value: 30d
           description: 'Alert when no updates were installed for this time and updates are pending'
         - macro: '{$PATCH.NODATA}'
           value: 2d
