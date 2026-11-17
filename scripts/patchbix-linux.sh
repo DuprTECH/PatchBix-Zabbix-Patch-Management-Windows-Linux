@@ -86,7 +86,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.14"
+SCRIPT_VERSION="26.11.17"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -575,6 +575,9 @@ $(printf '%s\n' "$out" | awk 'NF >= 2 && $1 !~ /^#/ {
     return 0
 }
 
+# Installed kernels kept after --update: the newest ones incl. the running one (= running + 2 fallback)
+KEEP_KERNELS=3
+
 # ---------------- Install updates (--update) ----------------
 # Like the Ansible playbook: refresh, upgrade without EXCLUDE, autoremove, reboot when needed
 # and allowed; the result goes to the patch.install.* items. Only in an open maintenance window and only
@@ -639,9 +642,21 @@ do_update() {
             fi
         fi
         [ ${#held[@]} -gt 0 ] && apt-mark unhold "${held[@]}" >/dev/null
-        [ "$rc" -eq 0 ] && apt-get -y -q autoremove >/dev/null
+        if [ "$rc" -eq 0 ]; then
+            # autoremove keeps only the running and the newest kernel (+ the one before it, apt-auto-removal):
+            # keep the running kernel and the KEEP_KERNELS newest ones (image, modules, headers of the version)
+            local -a keep=()
+            local kv
+            for kv in $( { uname -r; ls -1 /boot/vmlinuz-* 2>/dev/null | sed 's|^/boot/vmlinuz-||' \
+                    | grep -v rescue | sort -V | tail -n "$KEEP_KERNELS"; } | sed 's/-[a-z].*//; s/\./\\./g' | sort -u); do
+                keep+=(-o "APT::NeverAutoRemove::=^linux-.*-$kv(-.*)?\$")
+            done
+            apt-get -y -q "${keep[@]}" autoremove >/dev/null
+        fi
         [ -f /var/run/reboot-required ] && need=1
     else
+        # installonly_limit = installed kernels incl. the running one (the running one is never removed)
+        x+=("--setopt=installonly_limit=$KEEP_KERNELS")
         for p in "${EXCL[@]}"; do x+=("--exclude=$p"); done
         [ "$pm" = dnf ] && dnf -q makecache >/dev/null 2>&1
         if [ "$types" = '*' ]; then
