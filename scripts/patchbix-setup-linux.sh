@@ -143,8 +143,8 @@ EOF
             echo "Maintenance window = when and which updates are installed automatically: '[<types>] <day> <HH:MM>-<HH:MM>',"
             echo "  several separated by commas. Types: * = all (also without types), crit = critical (dnf / yum only),"
             echo "  sec = security, kernel = kernel packages; several joined with +. Day: 1-7 = Monday-Sunday (or Mon..Sun),"
-            echo "  1-5, * = every day, 2.3 = 2nd Wednesday. Examples: * 3 03:00-05:00 = everything on Wednesday,"
-            echo "  crit+sec * 02:00-03:00 = critical and security updates every night"
+            echo "  1-5 or Mon-Fri, Tue+Thu = Tuesday and Thursday, * = every day, 2.3 = 2nd Wednesday. Examples: * 3 03:00-05:00 = everything on Wednesday,"
+            echo "  crit+sec * 02:00-03:00 = critical and security updates every night, all Tue+Thu 03:00-05:00"
             ask "Maintenance window" "$win"; win=$REPLY
             ask "Automatic updates in the window (true/false, not set = false)" "$auto"; auto=$REPLY
             ask "Excluded packages, comma separated, wildcards allowed" "$excl"; excl=$REPLY
@@ -166,10 +166,12 @@ EOF
 #   "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
 #   types: * = all updates (also without types), crit = critical (dnf / yum severity Critical; Debian: CVEs
 #          of high urgency by debsecan; Ubuntu: nothing), sec = security, kernel = kernel packages; several joined with +, for example crit+sec
-#   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
+#   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5 or Mon-Fri, * = every day, 2.3 = 2nd Wednesday of the month,
+#        several days joined with + (Tue+Thu = Tuesday and Thursday)
 #   an end lower than the start = the window ends the next day (6 22:00-04:00)
 #   MAINTENANCE_WINDOW="* 3 03:00-05:00"                         = all updates every Wednesday 03:00-05:00
 #   MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"  = critical + security every night, all on Saturday
+#   MAINTENANCE_WINDOW="all Tue+Thu 03:00-05:00"                 = all updates on Tuesday and Thursday 03:00-05:00
 $(setting MAINTENANCE_WINDOW "$win" "* 3 03:00-05:00")
 
 # Automatic updates: true = the checker installs the update types of the window itself in it (cron every

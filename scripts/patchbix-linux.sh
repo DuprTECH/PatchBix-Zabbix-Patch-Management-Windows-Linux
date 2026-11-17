@@ -35,7 +35,8 @@
 #                     "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas; types: * or all = all
 #                     updates (also without types), crit = critical (dnf / yum severity Critical, Debian
 #                     debsecan high urgency; Ubuntu - nothing), sec = security, kernel = kernel packages,
-#                     def = Windows only, several joined with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday.
+#                     def = Windows only, several joined with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday,
+#                     several days joined with + (Tue+Thu = Tuesday and Thursday).
 #                     The automatic updates need a window and AUTO_UPDATE="true".
 #   EXCLUDE="kernel*, docker-ce"           packages that are not updated (wildcards allowed)
 #   REBOOT="true"                          reboot after updates when needed (false = report only)
@@ -85,7 +86,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.13"
+SCRIPT_VERSION="26.10.14"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -234,7 +235,7 @@ is_excluded() {
 }
 
 # Day of a maintenance window: 3 or Wed (1 = Monday ... 7 = Sunday), a range 1-5 / Mon-Fri,
-# * (every day), 2.3 / 2.Wed (2nd Wednesday of the month)
+# * (every day), 2.3 / 2.Wed (2nd Wednesday of the month); several joined with + (Tue+Thu) in maint_eval
 DAYS=(mon tue wed thu fri sat sun)
 day_num() {
     local i
@@ -285,8 +286,8 @@ types_norm() {
 maint_eval() {
     MAINT_ACTIVE=0; MAINT_START=""; MAINT_NEXT=""; MAINT_ERROR=""; MAINT_TYPES=""
     [ -z "$MAINTENANCE_WINDOW" ] && return 0
-    local w f1 f2 f3 extra spec range types now base d dow dom day0 s e i t
-    local -a wins specs starts ends wtypes
+    local w f1 f2 f3 extra spec range types now base d dow dom day0 s e i t dp start end
+    local -a wins specs starts ends wtypes dparts
     local re='^([01]?[0-9]|2[0-3]):([0-5][0-9])-([01]?[0-9]|2[0-3]):([0-5][0-9])$'
     IFS=',' read -ra wins <<< "$MAINTENANCE_WINDOW"
     for w in "${wins[@]}"; do
@@ -294,14 +295,19 @@ maint_eval() {
         [ -z "$f1" ] && continue
         if [ -z "$f3" ]; then types='*'; spec=$f1; range=$f2
         else types=$(types_norm "$f1") || types=""; spec=$f2; range=$f3; fi
-        day_match "$spec" 1 1; [ $? -eq 2 ] && spec=""
+        # several days joined with + (Tue+Thu) = one window on each of them
+        dparts=(); [[ $spec == *+ ]] || IFS='+' read -ra dparts <<< "$spec"
+        [ ${#dparts[@]} -eq 0 ] && spec=""
+        for dp in "${dparts[@]}"; do day_match "$dp" 1 1; [ $? -eq 2 ] && spec=""; done
         if [ -z "$types" ] || [ -z "$spec" ] || [ -n "$extra" ] || ! [[ $range =~ $re ]]; then
             [ -z "$MAINT_ERROR" ] && MAINT_ERROR="invalid maintenance window '$(trim "$w")'"
             continue
         fi
-        specs+=("$spec"); wtypes+=("$types")
-        starts+=($(( 10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]} )))
-        ends+=($(( 10#${BASH_REMATCH[3]} * 60 + 10#${BASH_REMATCH[4]} )))
+        start=$(( 10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]} ))
+        end=$(( 10#${BASH_REMATCH[3]} * 60 + 10#${BASH_REMATCH[4]} ))
+        for dp in "${dparts[@]}"; do
+            specs+=("$dp"); wtypes+=("$types"); starts+=("$start"); ends+=("$end")
+        done
     done
     now=$(date +%s); base=$(date +%F)
     for d in $(seq -1 62); do

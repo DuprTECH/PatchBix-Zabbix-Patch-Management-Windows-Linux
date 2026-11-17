@@ -148,8 +148,8 @@ function Install-Monitor {
         Write-Host "Maintenance window = when and which updates are installed automatically: '[<types>] <day> <HH:MM>-<HH:MM>',"
         Write-Host '  several separated by commas. Types: * = all (also without types), crit = critical (Critical Updates or'
         Write-Host '  MSRC severity Critical), sec = security, def = definitions; several joined with +. Day: 1-7 = Monday-Sunday'
-        Write-Host '  (or Mon..Sun), 1-5, * = every day, 2.3 = 2nd Wednesday. Examples: * 3 03:00-05:00 = everything on Wednesday,'
-        Write-Host '  crit+sec * 02:00-03:00 = critical and security updates every night'
+        Write-Host '  (or Mon..Sun), 1-5 or Mon-Fri, Tue+Thu = Tuesday and Thursday, * = every day, 2.3 = 2nd Wednesday. Examples: * 3 03:00-05:00 = everything on Wednesday,'
+        Write-Host '  crit+sec * 02:00-03:00 = critical and security updates every night, all Tue+Thu 03:00-05:00'
         $win  = Ask 'Maintenance window' $win
         $auto = Ask 'Automatic updates in the window (true/false, not set = false)' $auto
         $ex   = Ask 'Excluded updates, comma separated: KB number or a part of the title' $ex

@@ -10,7 +10,7 @@ One Zabbix 7.4 template to see the **update status of all your Windows and Linux
 
 ![Host dashboard included in the template (sample data)](images/host_dashboard_1.png)
 
-*Host dashboard **PatchBix**, included in the template (sample data). More screenshots, including the global dashboard of all hosts, are in [Dashboards](#dashboards).*
+*Host dashboard **PatchBix - Patch management**, included in the template (sample data). More screenshots, including the global dashboard of all hosts, are in [Dashboards](#dashboards).*
 
 ## ✨ Highlights
 
@@ -102,7 +102,7 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Install run: time, age, status, result, count, failed, list | `patch.install.timestamp`, `.age`, `.status`, `.result`, `.count`, `.failed`, `.list` | install job, Ansible | install job, Ansible |
 | Maintenance window / next window | `patch.maintenance.window`, `patch.maintenance.next` | `patchbix.conf` | `patchbix.conf` |
 | Auto update by the check script (maintenance window and `AUTO_UPDATE="true"`) | `patch.autoupdate.config` | ✔ | ✔ |
-| Config – the settings that are set, ✎ = host macro, ▤ = `patchbix.conf` | `patch.config.override` | `✎ window: crit+sec * 02:00-03:00, ▤ reboot: false`; empty = nothing set | the same |
+| Config – the settings that are set, ✎ = host macro, ▤ = `patchbix.conf` | `patch.config.override` | `✎ window: crit+sec 1-7 02:00-03:00, ▤ reboot: false`; empty = nothing set | the same |
 | Host macros delivered by the agent | `patch.config[…]` (agent item) | `OK, written / unchanged: …` or `ERROR: …` | the same |
 | Excluded updates (config) / pending excluded | `patch.exclude`, `patch.updates.excluded` | KB or a part of the title | package names (wildcards) |
 | Reboot allowed | `patch.reboot.allowed` | `patchbix.conf` | `patchbix.conf` |
@@ -117,7 +117,7 @@ All times are sent as unix timestamps, so no time zone macros are needed. The pa
 
 ### Host dashboard – part of the template ✅
 
-The **host dashboard is included in the template** and is imported with it. Zabbix shows it for every host with the template (*Monitoring → Hosts → Dashboards → Patch management*), with the same widgets on Windows and Linux.
+The **host dashboard is included in the template** and is imported with it. Zabbix shows it for every host with the template (*Monitoring → Hosts → Dashboards → PatchBix - Patch management*), with the same widgets on Windows and Linux.
 
 | Overview | Categories and severity | Installs and history |
 |:---:|:---:|:---:|
@@ -139,7 +139,7 @@ Besides the template on the hosts, the global dashboard uses a **helper (summary
 
 ### Host dashboard pages
 
-The template contains the dashboard **PatchBix**, shown for every host with the template (*Monitoring → Hosts → Dashboards*):
+The template contains the dashboard **PatchBix - Patch management**, shown for every host with the template (*Monitoring → Hosts → Dashboards*):
 
 | Page | Widgets |
 |------|---------|
@@ -241,7 +241,8 @@ Each host can have its own settings in **`patchbix.conf`** – Linux `/etc/zabbi
 # of the host, several separated by commas (installed only with AUTO_UPDATE="true")
 #   types: * = all updates (also without types), crit = critical, sec = security, kernel = kernel packages (Linux),
 #          def = definitions (Windows); several joined with +, for example crit+sec
-#   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
+#   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5 or Mon-Fri, * = every day, 2.3 = 2nd Wednesday of the month,
+#        several days joined with + (Tue+Thu = Tuesday and Thursday)
 #   an end lower than the start = the window ends the next day
 MAINTENANCE_WINDOW="crit+sec * 02:00-03:00, * 6 03:00-06:00"   # critical + security every night, all on Saturday
 # true = the check script installs the update types of the window itself in it; false = check only (default) -
@@ -278,15 +279,17 @@ The same settings can be set in Zabbix, per host (or in a template linked to a g
 | Macro | Overrides | Values |
 |-------|-----------|--------|
 | `{$PATCH.CONF.AUTO_UPDATE}` | `AUTO_UPDATE` | `true` / `false` – the automatic updates in the window |
-| `{$PATCH.CONF.WINDOW}` | `MAINTENANCE_WINDOW` | `all 3 03:00-05:00`, `crit+sec 1-7 02:00-03:00, all 6 03:00-06:00`; **`all` = all update types, `1-7` = every day** (the agent doesn't allow `*`), `none` = no window |
+| `{$PATCH.CONF.WINDOW}` | `MAINTENANCE_WINDOW` | `all Wed 03:00-05:00`, `all Tue+Thu 03:00-05:00`, `all Mon-Fri 03:00-05:00`, `crit+sec 1-7 02:00-03:00, all Sat 03:00-06:00`; **`all` = all update types, `1-7` = every day, `Tue+Thu` = Tuesday and Thursday** (the agent doesn't allow `*`), `none` = no window |
 | `{$PATCH.CONF.EXCLUDE}` | `EXCLUDE` | `kernel%, docker-ce` – **`%` = wildcard** (the agent doesn't allow `*`), `none` = nothing excluded |
 | `{$PATCH.CONF.REBOOT}` | `REBOOT` | `true` / `false` |
+
+> ⚠️ **No `*` in the macros.** The Zabbix agent (`UnsafeUserParameters=0`) refuses the whole item when a macro value has `*` (or `"` `'` `$` `;` `|` `#` …): the item *Patch - Settings from host macros (agent)* becomes *not supported* with `Character "*" is not allowed` and **none of the macros of the host get to it** – also not `{$PATCH.CONF.AUTO_UPDATE}`, so the host stays at check only. Use `all` for the update types, `1-7` (or `Mon-Sun`) for every day and `%` as the wildcard in `{$PATCH.CONF.EXCLUDE}`. In `patchbix.conf` `*` works.
 
 How it works:
 
 1. The agent item *Patch - Settings from host macros (agent)* (active, every 5 min) has the macros in its key – the Zabbix server puts their values of the host into the key, so the agent gets them.
 2. The `UserParameter` `patch.config` runs the check script with `--zabbix-config` / `-ZabbixConfig`: it validates the values and writes the set (non empty) ones to **`patchbix-from-zbx-host-macro.cache`** next to `patchbix.conf` – only when they changed. **`patchbix.conf` is never changed from Zabbix**; an invalid value writes nothing (the item shows `ERROR: …` and the trigger *Patch settings in the host macros are invalid* fires).
-3. The check script (cron / Task Scheduler) reads `patchbix.conf` and then the `.cache` file – **a key from the macros wins**, an empty macro leaves `patchbix.conf` in effect. When the macro values change, the check script sends the settings to Zabbix right away (`--send-config` / `-SendConfig` in the background), so the dashboards show them within about 5 minutes – not only after the next check. The item *Patch - Config* (`patch.config.override`) and the **Config** column / tile of the dashboards show only the settings that are set, ✎ = from the host macro, ▤ = from `patchbix.conf`, for example `✎ window: crit+sec * 02:00-03:00, ▤ reboot: false`. Empty = nothing set, the defaults apply (no automatic updates). The check script sends `[S]` / `[C]`, the preprocessing of the item replaces them with the symbols.
+3. The check script (cron / Task Scheduler) reads `patchbix.conf` and then the `.cache` file – **a key from the macros wins**, an empty macro leaves `patchbix.conf` in effect. When the macro values change, the check script sends the settings to Zabbix right away (`--send-config` / `-SendConfig` in the background), so the dashboards show them within about 5 minutes – not only after the next check. The item *Patch - Config* (`patch.config.override`) and the **Config** column / tile of the dashboards show only the settings that are set, ✎ = from the host macro, ▤ = from `patchbix.conf`, for example `✎ window: crit+sec 1-7 02:00-03:00, ▤ reboot: false`. Empty = nothing set, the defaults apply (no automatic updates). The check script sends `[S]` / `[C]`, the preprocessing of the item replaces them with the symbols.
 
 The setup scripts and the Ansible playbooks install the `UserParameter` with `patchbix-linux.sh --install-agent-config` / `patchbix-windows.ps1 -InstallAgentConfig`: a file `patchbix-userparameter.conf` in the agent `Include` folder (the main agent config gets an `Include` line only when it has none), the `.cache` file writable by the agent (Linux `root:zabbix 0664`), and a restart of the agent – only when something changed; when the agent doesn't start afterwards, the changes are undone. Without the `UserParameter` the agent item is *not supported* and `patchbix.conf` alone applies.
 

@@ -51,7 +51,8 @@
                     "[<types>] <day> <HH:MM>-<HH:MM>", several separated by commas; types: * or all = all
                     updates (also without types), crit = critical (classification Critical Updates or MSRC
                     severity Critical), sec = security, def = definitions, kernel = Linux only, several joined
-                    with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday.
+                    with +; day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday, several days
+                    joined with + (Tue+Thu = Tuesday and Thursday).
                     The automatic updates need a window and AUTO_UPDATE="true".
       EXCLUDE="KB5034441, Preview"              updates that are not installed (KB number or a part of the title)
       REBOOT="true"                             reboot after updates when needed (false = report only)
@@ -131,7 +132,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.11.08'
+$ScriptVersion = '26.11.17'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -283,7 +284,7 @@ function ConvertTo-UpdateTypes([string]$Spec) {
 
 # Maintenance window "[<types>] <day> <HH:MM>-<HH:MM>, ..." - without types = all updates; day: 3 or Wed
 # (1 = Monday ... 7 = Sunday), a range 1-5 / Mon-Fri, * (every day), 2.3 / 2.Wed (2nd Wednesday of the
-# month); an end lower than the start = the next day. types = update types of the open window(s)
+# month), several joined with + (Tue+Thu); an end lower than the start = the next day. types = update types of the open window(s)
 function Get-Maintenance([string]$Spec) {
     $r = @{ active = $false; start = $null; next = $null; error = ''; types = '' }
     if (-not $Spec) { return $r }
@@ -303,19 +304,24 @@ function Get-Maintenance([string]$Spec) {
             $d = $Matches[2]; $h1 = [int]$Matches[3]; $m1 = [int]$Matches[4]; $h2 = [int]$Matches[5]; $m2 = [int]$Matches[6]
             $ok = $ok -and $h1 -le 23 -and $h2 -le 23 -and $m1 -le 59 -and $m2 -le 59
         }
-        $nth = 0; $from = 0; $to = 0
+        # several days joined with + (Tue+Thu) = one window on each of them
+        $parts = @()
         if ($ok) {
-            if ($d -eq '*') { $from = 1; $to = 7 }
-            elseif ($d -match '^([1-5])\.(\w+)$') { $nth = [int]$Matches[1]; $from = $to = DayNum $Matches[2] }
-            elseif ($d -match '^(\w+)-(\w+)$') { $from = DayNum $Matches[1]; $to = DayNum $Matches[2] }
-            else { $from = $to = DayNum $d }
-            $ok = $from -gt 0 -and $to -gt 0
+            foreach ($p in ($d -split '\+')) {
+                $nth = 0; $from = 0; $to = 0
+                if ($p -eq '*') { $from = 1; $to = 7 }
+                elseif ($p -match '^([1-5])\.(\w+)$') { $nth = [int]$Matches[1]; $from = $to = DayNum $Matches[2] }
+                elseif ($p -match '^(\w+)-(\w+)$') { $from = DayNum $Matches[1]; $to = DayNum $Matches[2] }
+                elseif ($p) { $from = $to = DayNum $p }
+                if (-not ($from -gt 0 -and $to -gt 0)) { $ok = $false; break }
+                $parts += [pscustomobject]@{ nth = $nth; from = $from; to = $to; start = $h1 * 60 + $m1; end = $h2 * 60 + $m2; types = $types }
+            }
         }
         if (-not $ok) {
             if (-not $r.error) { $r.error = "invalid maintenance window '$w'" }
             continue
         }
-        $wins += [pscustomobject]@{ nth = $nth; from = $from; to = $to; start = $h1 * 60 + $m1; end = $h2 * 60 + $m2; types = $types }
+        $wins += $parts
     }
     $now = Get-Date
     for ($i = -1; $i -le 62; $i++) {
