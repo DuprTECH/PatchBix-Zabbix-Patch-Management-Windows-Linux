@@ -468,6 +468,22 @@ auto_combine() {
     return 0
 }
 
+# UPDATE_PACKAGE done for this value / reboot left for the next maintenance window (UPDATE_REBOOT=false)
+PKG_STAMP=/var/lib/patchbix/last-update-package
+REBOOT_STAMP=/var/lib/patchbix/reboot-in-window
+
+# Urgent package update for the dashboards: the packages, the reboot (2 right away, 1 in the maintenance window,
+# 0 never) and the reboot left for the maintenance window (start of the window, 0 = none)
+update_items() {
+    local s=0
+    if [ -f "$REBOOT_STAMP" ] && [ "$(awk '/^btime/ {print $2}' /proc/stat)" -le "$(stat -c %Y "$REBOOT_STAMP")" ]; then
+        if [ "$MAINT_ACTIVE" -eq 1 ]; then s=$MAINT_START; else s=${MAINT_NEXT:-0}; fi
+    fi
+    echo "- patch.update.package $(q "${UPDATE_PACKAGE:--}")"
+    echo "- patch.update.reboot $(case "$UPDATE_REBOOT" in now) echo 2 ;; window) echo 1 ;; *) echo 0 ;; esac)"
+    echo "- patch.reboot.scheduled $s"
+}
+
 # --send-config: only the patch settings (after a change of the host macros, by --zabbix-config)
 if [ "$MODE" = sendconfig ]; then
     {
@@ -484,6 +500,7 @@ if [ "$MODE" = sendconfig ]; then
         echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
         [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"
         echo "- patch.exclude $(q "${EXCLUDE:--}")"
+        update_items
     } | send -i -
     exit 0
 fi
@@ -576,9 +593,6 @@ fi
 
 # --auto-update (cron every 15 min): only with a maintenance window, when it is open, once per window
 STAMP=/var/lib/patchbix/last-auto-update
-# UPDATE_PACKAGE done for this value / reboot left for the next maintenance window (UPDATE_REBOOT=false)
-PKG_STAMP=/var/lib/patchbix/last-update-package
-REBOOT_STAMP=/var/lib/patchbix/reboot-in-window
 if [ "$MODE" = auto ]; then
     # 1. Urgent package update (UPDATE_PACKAGE, {$PATCH.CONF.UPDATE_PACKAGE}): right away, once per value,
     #    also outside the window and without AUTO_UPDATE; a cleared value can be set again
@@ -600,6 +614,7 @@ if [ "$MODE" = auto ]; then
             echo "=== $(date '+%Y-%m-%d %H:%M') reboot in the maintenance window '$MAINTENANCE_WINDOW' (after the package update)"
             if shutdown -r +2 "Reboot in the maintenance window (patchbix-linux.sh)"; then
                 send -k patch.reboot.required -o 0 >/dev/null
+                send -k patch.reboot.scheduled -o 0 >/dev/null
                 echo "Rebooting in 2 minutes (cancel: shutdown -c)."
             else
                 echo "ERROR: the reboot failed (shutdown -r), reboot the host by hand" >&2
@@ -843,6 +858,7 @@ do_update() {
     send -k patch.install.result -o "$result" >/dev/null
     if [ "$doreboot" -eq 1 ]; then
         send -k patch.reboot.required -o 0 >/dev/null
+        send -k patch.reboot.scheduled -o 0 >/dev/null
         echo "Rebooting in 2 minutes (cancel: shutdown -c)."
         exit 0
     fi
@@ -1162,6 +1178,7 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
     [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"
     echo "- patch.exclude $(q "${EXCLUDE:--}")"
+    update_items
     if [ -n "$LASTUPDATE" ]; then
         echo "- patch.lastupdate.timestamp $LASTUPDATE"
         echo "- patch.lastupdate.patchday $(patchday "$LASTUPDATE")"

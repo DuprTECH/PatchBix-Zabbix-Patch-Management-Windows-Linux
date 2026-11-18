@@ -890,6 +890,45 @@ zabbix_export:
           tags:
             - tag: component
               value: maintenance
+        - uuid: d22fbcc254a74e6db02d72d09ba28e83
+          name: 'Patch - Urgent package update'
+          type: TRAP
+          key: patch.update.package
+          history: 90d
+          value_type: CHAR
+          trends: '0'
+          description: |
+            Linux: packages of the urgent update (UPDATE_PACKAGE, host macro {$PATCH.CONF.UPDATE_PACKAGE}), "-" = none.
+            The check script updates them at its next automatic run (cron every 15 min), once per value; the result
+            goes to "Patch - Last install result". Sent by the check and after a change of the host macros.
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: d41654b838c04e2c9bb0b3397e4c51c3
+          name: 'Patch - Reboot after urgent update'
+          type: TRAP
+          key: patch.update.reboot
+          history: 90d
+          trends: '0'
+          description: 'Linux: reboot after the urgent package update when needed (UPDATE_REBOOT, host macro {$PATCH.CONF.UPDATE_REBOOT}): 2 - right away, 1 - in the next maintenance window (default), 0 - never (only reported).'
+          valuemap:
+            name: 'Reboot after urgent update'
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: 2e02ba15feeb4746a97faa87d7c4b598
+          name: 'Patch - Reboot scheduled (maintenance window)'
+          type: TRAP
+          key: patch.reboot.scheduled
+          history: 90d
+          trends: '0'
+          units: unixtime
+          description: 'Linux: a reboot left for the maintenance window after the urgent package update (UPDATE_REBOOT false) - start of the window when the host reboots, 0 = none. A reboot in the meantime cancels it.'
+          valuemap:
+            name: 'Reboot scheduled'
+          tags:
+            - tag: component
+              value: maintenance
         - uuid: 755bc789857b41b2a6389621490d3410
           name: 'Patch - Settings from host macros (agent)'
           type: ZABBIX_ACTIVE
@@ -1295,7 +1334,7 @@ zabbix_export:
                       value: '20'
                 - type: itemhistory
                   name: 'Pending updates'
-                  'y': '12'
+                  'y': '15'
                   width: '36'
                   height: '9'
                   fields:
@@ -1325,7 +1364,7 @@ zabbix_export:
                 - type: itemhistory
                   name: 'Update history (recent installs)'
                   x: '36'
-                  'y': '12'
+                  'y': '15'
                   width: '36'
                   height: '9'
                   fields:
@@ -1354,7 +1393,7 @@ zabbix_export:
                       value: '1'
                 - type: svggraph
                   name: 'Pending updates (30 days)'
-                  'y': '21'
+                  'y': '24'
                   width: '36'
                   height: '5'
                   fields:
@@ -1429,7 +1468,7 @@ zabbix_export:
                 - type: svggraph
                   name: 'Reboot required / time since reboot (30 days)'
                   x: '36'
-                  'y': '21'
+                  'y': '24'
                   width: '36'
                   height: '5'
                   fields:
@@ -1496,7 +1535,7 @@ zabbix_export:
                       value: '1'
                 - type: problems
                   name: 'Patch management problems'
-                  'y': '26'
+                  'y': '29'
                   width: '72'
                   height: '5'
                   fields:
@@ -1660,6 +1699,83 @@ zabbix_export:
                     - type: INTEGER
                       name: value_size
                       value: '20'
+                - type: item
+                  name: 'Urgent package update'
+                  'y': '12'
+                  width: '30'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.update.package
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Reboot after urgent update'
+                  x: '30'
+                  'y': '12'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.update.reboot
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Reboot scheduled (maintenance window)'
+                  x: '42'
+                  'y': '12'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.reboot.scheduled
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: FFA000
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '1'
+                - type: item
+                  name: 'Last install result'
+                  x: '54'
+                  'y': '12'
+                  width: '18'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.result
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '10'
             - name: 'Categories and severity'
               widgets:
                 - type: piechart
@@ -2489,6 +2605,20 @@ zabbix_export:
           value: 7d
           description: 'Alert when a reboot is pending for this time'
       valuemaps:
+        - uuid: 7112c6433457482b8caee0c72963b482
+          name: 'Reboot after urgent update'
+          mappings:
+            - value: '0'
+              newvalue: Never
+            - value: '1'
+              newvalue: 'In the maintenance window'
+            - value: '2'
+              newvalue: 'Right away'
+        - uuid: 8de44783cd7c4fa1976ed8e9a98cdfea
+          name: 'Reboot scheduled'
+          mappings:
+            - value: '0'
+              newvalue: 'No'
         - uuid: 22255060312d4e1cb6b763f10fedbb5e
           name: 'Automatic updates'
           mappings:
