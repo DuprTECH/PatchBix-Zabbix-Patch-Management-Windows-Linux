@@ -46,7 +46,8 @@
 #                                          15 min) does --update-package once per value (also outside the window,
 #                                          also without AUTO_UPDATE); to run the same value again, clear it first
 #   UPDATE_REBOOT="false"                  reboot after UPDATE_PACKAGE when needed: true = right away, false =
-#                                          in the next maintenance window (default; never = only report it)
+#                                          in the maintenance window where the updates run, after them (default;
+#                                          without AUTO_UPDATE when it opens; never = only report it)
 # They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
 # patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with --show-config.
 # patch.autoupdate (0 disabled, 1 OS security only, 2 OS all, 3 patch management = a maintenance window
@@ -75,7 +76,7 @@
 #                   patch.install.*, then the check runs. Reboot when needed: --reboot / UPDATE_REBOOT
 #   --reboot true|false|never
 #                   reboot when needed after --update / --update-package: true = right away, false = in the next
-#                   maintenance window (--auto-update reboots when it opens), never = only report it
+#                   maintenance window (after its update run, --auto-update), never = only report it
 #                   (default: REBOOT for --update, UPDATE_REBOOT for --update-package)
 #   --auto-update   for cron (every 15 min): with AUTO_UPDATE="true", in an open maintenance window does
 #                   --update once per window (its update types), otherwise exits right away
@@ -100,7 +101,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.11.18.1"
+SCRIPT_VERSION="26.11.18.2"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -212,7 +213,7 @@ case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|tru
 AUTO_UPDATE=0
 [ -n "$MAINTENANCE_WINDOW" ] && [ "$AUTO_UPDATE_ON" -eq 1 ] && AUTO_UPDATE=1
 # Urgent package update (UPDATE_PACKAGE, done by --auto-update once per value) and its reboot:
-# now (true), window (false, default - in the next maintenance window) or no (never - only report it)
+# now (true), window (false, default - in the maintenance window, after its updates) or no (never - only report it)
 reboot_mode() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
         yes|true|1|on|now)            echo now ;;
@@ -605,10 +606,16 @@ if [ "$MODE" = auto ]; then
     fi
 fi
 if [ "$MODE" = auto ]; then
-    # 2. A reboot left for the maintenance window: when it opens (not when the host rebooted meanwhile)
+    # 2. A reboot left for the maintenance window (UPDATE_REBOOT=false): in the window where the updates run,
+    #    after them - with the automatic updates once after the update run of the window, without them when
+    #    the window opens (not when the host rebooted meanwhile)
+    PENDING_REBOOT=0
     if [ -f "$REBOOT_STAMP" ]; then
         if [ "$(awk '/^btime/ {print $2}' /proc/stat)" -gt "$(stat -c %Y "$REBOOT_STAMP")" ]; then
             rm -f "$REBOOT_STAMP"
+        elif [ "$MAINT_ACTIVE" -eq 1 ] && [ "$AUTO_UPDATE" -eq 1 ] \
+             && ! [ "$(cat "$STAMP" 2>/dev/null || echo 0)" -ge "$MAINT_START" ] 2>/dev/null; then
+            PENDING_REBOOT=1   # the update run below reboots after the updates
         elif [ "$MAINT_ACTIVE" -eq 1 ]; then
             rm -f "$REBOOT_STAMP"
             echo "=== $(date '+%Y-%m-%d %H:%M') reboot in the maintenance window '$MAINTENANCE_WINDOW' (after the package update)"
@@ -822,11 +829,17 @@ do_update() {
     # --auto-update) or no; --update-package takes UPDATE_REBOOT unless --reboot is given
     local rmode=$REBOOT_MODE later=0 rb=""
     [ -z "$rmode" ] && [ ${#PKGS[@]} -gt 0 ] && rmode=$UPDATE_REBOOT
-    if [ "$rc" -eq 0 ] && [ "$need" -eq 1 ]; then
+    if [ "${PENDING_REBOOT:-0}" -eq 1 ]; then
+        # the reboot left for this window after the urgent package update - also when nothing else needs it
+        need=1; doreboot=1
+    elif [ "$rc" -eq 0 ] && [ "$need" -eq 1 ]; then
         case "$rmode" in
             "")     [ "$REBOOT_ALLOWED" -eq 1 ] && doreboot=1 ;;
             now)    doreboot=1 ;;
-            window) if [ "$MAINT_ACTIVE" -eq 1 ]; then doreboot=1
+            # window: in the window where the updates run, after them - right away only when the window is open
+            # and its update run is done (or there is none: no AUTO_UPDATE)
+            window) if [ "$MAINT_ACTIVE" -eq 1 ] && { [ "$AUTO_UPDATE" -ne 1 ] || [ "$(cat "$STAMP" 2>/dev/null || echo 0)" -ge "$MAINT_START" ] 2>/dev/null; }; then
+                        doreboot=1
                     elif [ -n "$MAINTENANCE_WINDOW" ] && [ -z "$MAINT_ERROR" ]; then
                         mkdir -p "$(dirname "$REBOOT_STAMP")" && touch "$REBOOT_STAMP" && later=1
                     fi ;;
@@ -840,7 +853,8 @@ do_update() {
     [ "$doreboot" -eq 1 ] && rm -f "$REBOOT_STAMP"
     if [ "$doreboot" -eq 1 ]; then rb=', rebooting'
     elif [ "$need" -eq 1 ]; then
-        if [ "$later" -eq 1 ]; then rb=", reboot in the maintenance window$( [ -n "$MAINT_NEXT" ] && date -d "@$MAINT_NEXT" '+ %Y-%m-%d %H:%M')"
+        if [ "$later" -eq 1 ] && [ "$MAINT_ACTIVE" -eq 1 ]; then rb=", reboot in this maintenance window after its updates"
+        elif [ "$later" -eq 1 ]; then rb=", reboot in the maintenance window$( [ -n "$MAINT_NEXT" ] && date -d "@$MAINT_NEXT" '+ %Y-%m-%d %H:%M')$( [ "$AUTO_UPDATE" -eq 1 ] && echo ' after its updates')"
         elif [ "$rmode" = window ]; then rb=', reboot required (no maintenance window - reboot by hand)'
         else rb=', reboot required'; fi
         [ "$rebootfail" -eq 1 ] && rb="$rb (reboot FAILED: shutdown -r)"

@@ -910,7 +910,7 @@ zabbix_export:
           key: patch.update.reboot
           history: 90d
           trends: '0'
-          description: 'Linux: reboot after the urgent package update when needed (UPDATE_REBOOT, host macro {$PATCH.CONF.UPDATE_REBOOT}): 2 - right away, 1 - in the next maintenance window (default), 0 - never (only reported).'
+          description: 'Linux: reboot after the urgent package update when needed (UPDATE_REBOOT, host macro {$PATCH.CONF.UPDATE_REBOOT}): 2 - right away, 1 - in the maintenance window, after its updates (default), 0 - never (only reported).'
           valuemap:
             name: 'Reboot after urgent update'
           tags:
@@ -2591,7 +2591,7 @@ zabbix_export:
           description: 'Linux: urgent update of these packages, comma separated, % = wildcard (for example openssl, libssl%). The check script updates them at its next automatic run (cron every 15 min) - right away, also outside the maintenance window and without AUTO_UPDATE, once per value; the result goes to the install items (Patch - Last install result). To run the same value again, clear the macro, wait 15 min and set it again. Reboot: {$PATCH.CONF.UPDATE_REBOOT}. Empty = nothing.'
         - macro: '{$PATCH.CONF.UPDATE_REBOOT}'
           value: ''
-          description: 'Linux: reboot after {$PATCH.CONF.UPDATE_PACKAGE} when needed: true = right away, false = in the next maintenance window ({$PATCH.CONF.WINDOW}; without a window only reported), never = only report it. Empty = false.'
+          description: 'Linux: reboot after {$PATCH.CONF.UPDATE_PACKAGE} when needed: true = right away, false = in the maintenance window where the updates run, after them ({$PATCH.CONF.WINDOW}; without AUTO_UPDATE when the window opens, without a window only reported), never = only report it. Empty = false.'
         - macro: '{$PATCH.CONF.WINDOW}'
           value: ''
           description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of patchbix.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun or Mon..Sun (1-7 = every day), 1-5 or Mon-Fri, 2.3 = 2nd Wednesday, several days joined with + (Tue+Thu = Tuesday and Thursday). Examples: all Wed 03:00-05:00, all Tue+Thu 03:00-05:00, crit+sec 1-7 02:00-03:00. A * in any of the macros makes the agent refuse all of them (Character "*" is not allowed). none = no window. The automatic updates need {$PATCH.CONF.AUTO_UPDATE} = true (or AUTO_UPDATE="true" in patchbix.conf). Empty = patchbix.conf.'

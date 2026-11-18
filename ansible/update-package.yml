@@ -12,7 +12,8 @@
 #   packages       package names, comma separated (or a list), wildcards allowed ('libssl*'); only installed
 #                  packages are updated (and the dependencies they need), hosts without them are reported
 #   patch_reboot   reboot when the update needs it: true = right away (the playbook waits for the host),
-#                  false = in the next maintenance window of the host (default; without a window only reported),
+#                  false = in the maintenance window of the host where the updates run, after them (default;
+#                  without a window only reported),
 #                  never = only report it
 #
 # The check script (patchbix-linux.sh --update-package) does the update on the host and sends the result

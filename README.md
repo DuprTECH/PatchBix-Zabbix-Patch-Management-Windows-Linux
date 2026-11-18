@@ -256,7 +256,7 @@ EXCLUDE="kernel*, docker-ce"
 REBOOT="true"
 # Linux: urgent update of these packages at the next automatic run, once per value (see below)
 UPDATE_PACKAGE="openssl, libssl*"
-# its reboot when needed: true = right away, false = in the next maintenance window (default), never
+# its reboot when needed: true = right away, false = in the maintenance window, after its updates (default), never
 UPDATE_REBOOT="false"
 ```
 
@@ -283,11 +283,11 @@ When a critical fix comes out, update just the affected packages on Linux right 
 
 | | How | Reboot when needed |
 |---|---|---|
-| **Zabbix** | host macro `{$PATCH.CONF.UPDATE_PACKAGE}` = `openssl, libssl%` – done at the next automatic run (cron every 15 min), once per value | `{$PATCH.CONF.UPDATE_REBOOT}`: `true` = right away, `false` = in the next maintenance window (default), `never` = only report it |
+| **Zabbix** | host macro `{$PATCH.CONF.UPDATE_PACKAGE}` = `openssl, libssl%` – done at the next automatic run (cron every 15 min), once per value | `{$PATCH.CONF.UPDATE_REBOOT}`: `true` = right away, `false` = in the maintenance window where the updates run, after them (default), `never` = only report it |
 | **Ansible** | `ansible-playbook -i inventory.ini ansible/update-package.yml -e packages=openssl` (`-l web01` to limit the hosts) | `-e patch_reboot=true` / `false` (default) / `never`; with `true` the playbook waits for the host |
 | **On the host** | `patchbix-linux.sh --update-package "openssl, libssl*"` | `--reboot true` / `false` / `never` (default `UPDATE_REBOOT`) |
 
-- **Reboot in the maintenance window** (`false`): when the window is open, the host reboots right away; otherwise the automatic run reboots it when the next window opens (`MAINTENANCE_WINDOW` / `{$PATCH.CONF.WINDOW}`, also without `AUTO_UPDATE`). Without a window the reboot is only reported (*reboot by hand*). A reboot in the meantime cancels it.
+- **Reboot in the maintenance window** (`false`): the package is updated right away, the reboot waits for the maintenance window where the updates normally run (`MAINTENANCE_WINDOW` / `{$PATCH.CONF.WINDOW}`): the update run of the window installs its updates and then reboots once. Without `AUTO_UPDATE` (nothing is installed in the window) the host reboots when the window opens. Without a window the reboot is only reported (*reboot by hand*). A reboot in the meantime cancels it.
 - **Once per value**: the macro stays set, but the update runs only once for it. To run the same packages again, clear the macro, wait 15 minutes and set it again (or change the value).
 - The macros need the `UserParameter` of check script 26.11.18 or newer – run the setup script / playbook again on the hosts (it updates it and restarts the agent).
 
