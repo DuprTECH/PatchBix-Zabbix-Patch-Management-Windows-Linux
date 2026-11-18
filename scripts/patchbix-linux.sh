@@ -42,6 +42,11 @@
 #   REBOOT="true"                          reboot after updates when needed (false = report only)
 #   AUTO_UPDATE="true"                     the automatic updates in the window on (default false: the
 #                                          windows can be set first and turned on later, host by host)
+#   UPDATE_PACKAGE="openssl, libssl3"      urgent update of these packages: the next --auto-update (cron every
+#                                          15 min) does --update-package once per value (also outside the window,
+#                                          also without AUTO_UPDATE); to run the same value again, clear it first
+#   UPDATE_REBOOT="false"                  reboot after UPDATE_PACKAGE when needed: true = right away, false =
+#                                          in the next maintenance window (default; never = only report it)
 # They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
 # patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with --show-config.
 # patch.autoupdate (0 disabled, 1 OS security only, 2 OS all, 3 patch management = a maintenance window
@@ -63,6 +68,15 @@
 #   --update        install the updates now (apt / dnf / yum, without EXCLUDE), only in an open
 #                   maintenance window and only its types (--force: all updates, also outside), send the result to Zabbix
 #                   (patch.install.*), reboot when needed and REBOOT="true", then check
+#   --update-package "<pkg>[,<pkg> ...]"
+#                   update only these installed packages now (and the dependencies they need), also outside
+#                   a maintenance window and also when they are in EXCLUDE (wildcards allowed: 'libssl*'),
+#                   for an urgent fix (ansible/update-package.yml, or UPDATE_PACKAGE below); the result goes to
+#                   patch.install.*, then the check runs. Reboot when needed: --reboot / UPDATE_REBOOT
+#   --reboot true|false|never
+#                   reboot when needed after --update / --update-package: true = right away, false = in the next
+#                   maintenance window (--auto-update reboots when it opens), never = only report it
+#                   (default: REBOOT for --update, UPDATE_REBOOT for --update-package)
 #   --auto-update   for cron (every 15 min): with AUTO_UPDATE="true", in an open maintenance window does
 #                   --update once per window (its update types), otherwise exits right away
 #                   (log: /var/log/patchbix-update.log via cron)
@@ -86,7 +100,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.11.17"
+SCRIPT_VERSION="26.11.18"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -197,6 +211,20 @@ AUTO_UPDATE_ON=0
 case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|true|1|on) AUTO_UPDATE_ON=1 ;; esac
 AUTO_UPDATE=0
 [ -n "$MAINTENANCE_WINDOW" ] && [ "$AUTO_UPDATE_ON" -eq 1 ] && AUTO_UPDATE=1
+# Urgent package update (UPDATE_PACKAGE, done by --auto-update once per value) and its reboot:
+# now (true), window (false, default - in the next maintenance window) or no (never - only report it)
+reboot_mode() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        yes|true|1|on|now)            echo now ;;
+        ""|no|false|0|off|window)     echo window ;;
+        never)                        echo no ;;
+        *) return 1 ;;
+    esac
+}
+UPDATE_PACKAGE=$(trim "$(conf_get UPDATE_PACKAGE)")
+UPDATE_REBOOT=$(reboot_mode "$(trim "$(conf_get UPDATE_REBOOT)")") || UPDATE_REBOOT=window
+# Reboot of this run: "" = REBOOT (--update), otherwise now / window / no (--reboot, UPDATE_REBOOT)
+REBOOT_MODE=""
 # Keys set by the host macros
 MACRO_KEYS=$( [ -r "$PATCH_CONF_MACRO" ] && sed -n -E 's/^[[:space:]]*([A-Z_]+)[[:space:]]*=.*/\1/p' "$PATCH_CONF_MACRO" \
     | sort -u | paste -sd, - | sed 's/,/, /g')
@@ -219,6 +247,8 @@ conf_add MAINTENANCE_WINDOW window "${MAINTENANCE_WINDOW:-none (no automatic upd
 conf_add AUTO_UPDATE "auto update" "$( [ "$AUTO_UPDATE_ON" -eq 1 ] && echo true || echo false)$( [ "$AUTO_UPDATE_ON" -eq 1 ] && [ -z "$MAINTENANCE_WINDOW" ] && echo ' (no window - nothing is installed)')"
 conf_add EXCLUDE exclude "${EXCLUDE:--}"
 conf_add REBOOT reboot "$( [ "$REBOOT_ALLOWED" -eq 1 ] && echo true || echo false)"
+conf_add UPDATE_PACKAGE "update package" "${UPDATE_PACKAGE:--}"
+conf_add UPDATE_REBOOT "update reboot" "$(case "$UPDATE_REBOOT" in now) echo 'true (right away)' ;; window) echo 'false (in the maintenance window)' ;; *) echo 'never' ;; esac)"
 
 # Exclusions: comma separated package names, wildcards allowed
 EXCL=()
@@ -327,11 +357,13 @@ maint_eval() {
 }
 maint_eval
 
-MODE=check; FORCE=0; ZBX_VALUES=""
+MODE=check; FORCE=0; ZBX_VALUES=""; PKGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --show-config)          MODE=show ;;
         --update)               MODE=update ;;
+        --update-package)       MODE=update; FORCE=1; IFS=', ' read -ra _p <<< "${2-}"; PKGS+=("${_p[@]}"); shift ;;
+        --reboot)               REBOOT_MODE=$(reboot_mode "${2-}") || { echo "ERROR: --reboot true|false|never" >&2; exit 1; }; shift ;;
         --auto-update)          MODE=auto ;;
         --force)                FORCE=1 ;;
         --zabbix-config)        MODE=zabbix; ZBX_VALUES="${2-}"; shift ;;
@@ -344,16 +376,17 @@ tf() { [ "$1" -eq 1 ] && echo true || echo false; }
 
 # ---------------- Settings from the Zabbix host macros (--zabbix-config) ----------------
 # Run by the Zabbix agent (UserParameter patch.config, as the user zabbix) with the values of the
-# macros {$PATCH.CONF.WINDOW}|{$PATCH.CONF.AUTO_UPDATE}|{$PATCH.CONF.EXCLUDE}|{$PATCH.CONF.REBOOT}.
+# macros {$PATCH.CONF.WINDOW}|{$PATCH.CONF.AUTO_UPDATE}|{$PATCH.CONF.EXCLUDE}|{$PATCH.CONF.REBOOT}
+# |{$PATCH.CONF.UPDATE_PACKAGE}|{$PATCH.CONF.UPDATE_REBOOT} (the last two Linux only).
 # Writes the set (non empty) ones to PATCH_CONF_MACRO, only when they changed; patchbix.conf is
 # never changed. Invalid values: nothing is written, the item gets "ERROR: ...".
 # The agent forbids * " ' $ ; | # and other characters in the values (UnsafeUserParameters=0), so:
 #   window: all = all update types and 1-7 = every day (instead of *), "none" = no window (no automatic
 #   updates); exclude: % = wildcard, "none" = nothing
 zabbix_config() {
-    local w a e r extra content keys=() lines=()
-    IFS='|' read -r w a e r extra <<< "$1"
-    w=$(trim "$w"); a=$(trim "$a"); e=$(trim "$e"); r=$(trim "$r")
+    local w a e r up ur extra content keys=() lines=()
+    IFS='|' read -r w a e r up ur extra <<< "$1"
+    w=$(trim "$w"); a=$(trim "$a"); e=$(trim "$e"); r=$(trim "$r"); up=$(trim "$up"); ur=$(trim "$ur")
     if [ -n "$w" ]; then
         case "${w,,}" in none|any) w="" ;; esac
         if ! [[ $w =~ ^[0-9A-Za-z\ .,:+-]*$ ]]; then echo "ERROR: invalid {\$PATCH.CONF.WINDOW} '$w'"; return; fi
@@ -382,6 +415,17 @@ zabbix_config() {
             *) echo "ERROR: invalid {\$PATCH.CONF.REBOOT} '$r' (true / false)"; return ;;
         esac
         keys+=(REBOOT); lines+=("REBOOT=\"$r\"")
+    fi
+    if [ -n "$up" ] && [ "${up,,}" != none ]; then
+        if ! [[ $up =~ ^[0-9A-Za-z\ ._+:,%-]*$ ]]; then echo "ERROR: invalid {\$PATCH.CONF.UPDATE_PACKAGE} '$up'"; return; fi
+        up=${up//%/*}
+        keys+=(UPDATE_PACKAGE); lines+=("UPDATE_PACKAGE=\"$up\"")
+    fi
+    if [ -n "$ur" ]; then
+        local um
+        um=$(reboot_mode "$ur") || { echo "ERROR: invalid {\$PATCH.CONF.UPDATE_REBOOT} '$ur' (true = right away / false = in the maintenance window)"; return; }
+        ur=$(case "$um" in now) echo true ;; window) echo false ;; *) echo never ;; esac)
+        keys+=(UPDATE_REBOOT); lines+=("UPDATE_REBOOT=\"$ur\"")
     fi
     content="# patchbix-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {\$PATCH.CONF.*}
 # (item patch.config, patchbix-linux.sh --zabbix-config). Don't edit it: it is overwritten when a macro
@@ -490,7 +534,7 @@ install_agent_config() {
         [ -f "$f" ] && [ "$f" != "$self" ] && rm -f "$f" && echo "Removed the check script of the older version: $f"
     done
     upfile="$incdir/patchbix-userparameter.conf"
-    line="UserParameter=patch.config[*],$self --zabbix-config \"\$1|\$2|\$3|\$4\""
+    line="UserParameter=patch.config[*],$self --zabbix-config \"\$1|\$2|\$3|\$4|\$5|\$6\""
     if [ "$(cat "$upfile" 2>/dev/null)" != "# Settings from the Zabbix host macros {\$PATCH.CONF.*} - installed by patchbix-linux.sh
 $line" ]; then
         [ -f "$upfile" ] && cp -p "$upfile" "$upfile.bak"
@@ -523,15 +567,47 @@ if [ "$MODE" = show ]; then
         "$(q "$MAINTENANCE_WINDOW")" "$(tf "$MAINT_ACTIVE")"
     printf '"maintenance_next": %s, "maintenance_error": %s, "exclude": [' "${MAINT_NEXT:-null}" "$(q "$MAINT_ERROR")"
     sep=""; for p in "${EXCL[@]}"; do printf '%s%s' "$sep" "$(q "$p")"; sep=", "; done
-    printf '], "reboot_allowed": %s, "auto_update": %s, "auto_update_set": %s, "maintenance_types": %s, "macro_config": %s, "macro_keys": %s, "config_summary": %s}\n' \
+    printf '], "reboot_allowed": %s, "auto_update": %s, "auto_update_set": %s, "maintenance_types": %s, "update_package": %s, "update_reboot": %s, "macro_config": %s, "macro_keys": %s, "config_summary": %s}\n' \
         "$(tf "$REBOOT_ALLOWED")" "$(tf "$AUTO_UPDATE")" "$(tf "$AUTO_UPDATE_ON")" "$(q "$MAINT_TYPES")" \
+        "$(q "$UPDATE_PACKAGE")" "$(q "$UPDATE_REBOOT")" \
         "$(q "$PATCH_CONF_MACRO")" "$(q "$MACRO_KEYS")" "$(q "$CONFIG_SUMMARY")"
     exit 0
 fi
 
 # --auto-update (cron every 15 min): only with a maintenance window, when it is open, once per window
 STAMP=/var/lib/patchbix/last-auto-update
+# UPDATE_PACKAGE done for this value / reboot left for the next maintenance window (UPDATE_REBOOT=false)
+PKG_STAMP=/var/lib/patchbix/last-update-package
+REBOOT_STAMP=/var/lib/patchbix/reboot-in-window
 if [ "$MODE" = auto ]; then
+    # 1. Urgent package update (UPDATE_PACKAGE, {$PATCH.CONF.UPDATE_PACKAGE}): right away, once per value,
+    #    also outside the window and without AUTO_UPDATE; a cleared value can be set again
+    if [ -z "$UPDATE_PACKAGE" ]; then
+        rm -f "$PKG_STAMP"
+    elif [ "$(cat "$PKG_STAMP" 2>/dev/null)" != "$UPDATE_PACKAGE" ]; then
+        mkdir -p "$(dirname "$PKG_STAMP")" && printf '%s\n' "$UPDATE_PACKAGE" > "$PKG_STAMP"
+        echo "=== $(date '+%Y-%m-%d %H:%M') package update '$UPDATE_PACKAGE' (UPDATE_PACKAGE), reboot: $(case "$UPDATE_REBOOT" in now) echo 'right away' ;; window) echo 'in the maintenance window' ;; *) echo never ;; esac)"
+        IFS=', ' read -ra PKGS <<< "$UPDATE_PACKAGE"; FORCE=1; MODE=update
+    fi
+fi
+if [ "$MODE" = auto ]; then
+    # 2. A reboot left for the maintenance window: when it opens (not when the host rebooted meanwhile)
+    if [ -f "$REBOOT_STAMP" ]; then
+        if [ "$(awk '/^btime/ {print $2}' /proc/stat)" -gt "$(stat -c %Y "$REBOOT_STAMP")" ]; then
+            rm -f "$REBOOT_STAMP"
+        elif [ "$MAINT_ACTIVE" -eq 1 ]; then
+            rm -f "$REBOOT_STAMP"
+            echo "=== $(date '+%Y-%m-%d %H:%M') reboot in the maintenance window '$MAINTENANCE_WINDOW' (after the package update)"
+            if shutdown -r +2 "Reboot in the maintenance window (patchbix-linux.sh)"; then
+                send -k patch.reboot.required -o 0 >/dev/null
+                echo "Rebooting in 2 minutes (cancel: shutdown -c)."
+            else
+                echo "ERROR: the reboot failed (shutdown -r), reboot the host by hand" >&2
+            fi
+            exit 0
+        fi
+    fi
+    # 3. Automatic updates in the maintenance window
     [ "$AUTO_UPDATE" -eq 1 ] && [ "$MAINT_ACTIVE" -eq 1 ] || exit 0
     [ "$(cat "$STAMP" 2>/dev/null || echo 0)" -ge "$MAINT_START" ] 2>/dev/null && exit 0
     mkdir -p "$(dirname "$STAMP")" && date +%s > "$STAMP"
@@ -588,7 +664,26 @@ do_update() {
     local w
     for p in apt-get dnf yum; do command -v $p >/dev/null 2>&1 && { pm=$p; break; }; done
     if [ -z "$pm" ]; then echo "ERROR: --update supports apt, dnf and yum" >&2; return 1; fi
-    if [ "$FORCE" -eq 1 ]; then types='*'
+    # --update-package: only the named packages, the window and EXCLUDE don't apply
+    local -a pkgs=() missing=()
+    if [ ${#PKGS[@]} -gt 0 ]; then
+        for p in "${PKGS[@]}"; do
+            [ -z "$p" ] && continue
+            if ! [[ $p =~ ^[A-Za-z0-9][A-Za-z0-9.+_:*?-]*$ ]]; then echo "ERROR: invalid package name '$p'" >&2; return 1; fi
+            # installed packages matching the name (wildcards), apt gets the exact names
+            if [ "$pm" = apt-get ]; then
+                n=$(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' "$p" 2>/dev/null | awk '$1 ~ /^ii/ {print $2}' | sort -u)
+            else
+                n=$(rpm -qa --qf '%{NAME}\n' "$p" 2>/dev/null | sort -u)
+            fi
+            if [ -z "$n" ]; then missing+=("$p"); continue; fi
+            if [ "$pm" = apt-get ]; then read -ra _n <<< "$(echo $n)"; pkgs+=("${_n[@]}"); else pkgs+=("$p"); fi
+        done
+        [ ${#missing[@]} -gt 0 ] && echo "Not installed: ${missing[*]}"
+        EXCL=()
+    fi
+    if [ ${#PKGS[@]} -gt 0 ]; then types="packages: ${PKGS[*]}"
+    elif [ "$FORCE" -eq 1 ]; then types='*'
     elif [ "$MAINT_ACTIVE" -eq 1 ]; then types=$MAINT_TYPES
     elif [ -z "$MAINTENANCE_WINDOW" ]; then
         echo "SKIPPED: no maintenance window - updates are installed only in a maintenance window. Install now with --force."
@@ -620,7 +715,12 @@ do_update() {
             done
             [ ${#held[@]} -gt 0 ] && echo "Held for the update: ${held[*]}"
         fi
-        if [ "$rc" -eq 0 ] && [ "$types" = '*' ]; then
+        if [ "$rc" -eq 0 ] && [ ${#PKGS[@]} -gt 0 ]; then
+            if [ ${#pkgs[@]} -gt 0 ]; then
+                apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install --only-upgrade "${pkgs[@]}" \
+                    || { rc=1; err="apt-get install --only-upgrade ${pkgs[*]} failed"; }
+            fi
+        elif [ "$rc" -eq 0 ] && [ "$types" = '*' ]; then
             apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold dist-upgrade \
                 || { rc=1; err="apt-get dist-upgrade failed"; }
         elif [ "$rc" -eq 0 ]; then
@@ -642,7 +742,8 @@ do_update() {
             fi
         fi
         [ ${#held[@]} -gt 0 ] && apt-mark unhold "${held[@]}" >/dev/null
-        if [ "$rc" -eq 0 ]; then
+        # (not after --update-package: only the named packages are changed)
+        if [ "$rc" -eq 0 ] && [ ${#PKGS[@]} -eq 0 ]; then
             # autoremove keeps only the running and the newest kernel (+ the one before it, apt-auto-removal):
             # keep the running kernel and the KEEP_KERNELS newest ones (image, modules, headers of the version)
             local -a keep=()
@@ -659,7 +760,11 @@ do_update() {
         x+=("--setopt=installonly_limit=$KEEP_KERNELS")
         for p in "${EXCL[@]}"; do x+=("--exclude=$p"); done
         [ "$pm" = dnf ] && dnf -q makecache >/dev/null 2>&1
-        if [ "$types" = '*' ]; then
+        if [ ${#PKGS[@]} -gt 0 ]; then
+            if [ ${#pkgs[@]} -gt 0 ]; then
+                $pm -y upgrade "${x[@]}" "${pkgs[@]}" || { rc=1; err="$pm upgrade ${pkgs[*]} failed"; }
+            fi
+        elif [ "$types" = '*' ]; then
             $pm -y upgrade "${x[@]}" || { rc=1; err="$pm upgrade failed"; }
         else
             # Only the types: sec = security advisories, crit = security advisories with severity Critical,
@@ -677,7 +782,7 @@ do_update() {
                 esac
             done
         fi
-        [ "$rc" -eq 0 ] && $pm -y -q autoremove >/dev/null 2>&1
+        [ "$rc" -eq 0 ] && [ ${#PKGS[@]} -eq 0 ] && $pm -y -q autoremove >/dev/null 2>&1
         # needs-restarting -r: exit 1 = reboot required (dnf-plugins-core / yum-utils)
         if ! command -v needs-restarting >/dev/null 2>&1 && ! dnf needs-restarting --help >/dev/null 2>&1; then
             $pm install -y -q "$( [ "$pm" = yum ] && echo yum-utils || echo dnf-plugins-core)" >/dev/null 2>&1
@@ -698,14 +803,36 @@ do_update() {
         END { for (k in b) if ((k in a) == 0) print "Remove  " k " " b[k] }' "$w/before" "$w/after")
     rm -rf "$w"
     count=$(printf '%s' "$changes" | grep -c .)
-    [ "$rc" -eq 0 ] && [ "$need" -eq 1 ] && [ "$REBOOT_ALLOWED" -eq 1 ] && doreboot=1
+    # Reboot: "" = REBOOT (--update), now, window (now when the window is open, otherwise when it opens -
+    # --auto-update) or no; --update-package takes UPDATE_REBOOT unless --reboot is given
+    local rmode=$REBOOT_MODE later=0 rb=""
+    [ -z "$rmode" ] && [ ${#PKGS[@]} -gt 0 ] && rmode=$UPDATE_REBOOT
+    if [ "$rc" -eq 0 ] && [ "$need" -eq 1 ]; then
+        case "$rmode" in
+            "")     [ "$REBOOT_ALLOWED" -eq 1 ] && doreboot=1 ;;
+            now)    doreboot=1 ;;
+            window) if [ "$MAINT_ACTIVE" -eq 1 ]; then doreboot=1
+                    elif [ -n "$MAINTENANCE_WINDOW" ] && [ -z "$MAINT_ERROR" ]; then
+                        mkdir -p "$(dirname "$REBOOT_STAMP")" && touch "$REBOOT_STAMP" && later=1
+                    fi ;;
+        esac
+    fi
     # Schedule the reboot first, so the result tells whether it worked
     # (the check runs again after the reboot: @reboot line in /etc/cron.d/patchbix)
     if [ "$doreboot" -eq 1 ] && ! shutdown -r +2 "Reboot after the update (patchbix-linux.sh)"; then
         doreboot=0; rebootfail=1
     fi
+    [ "$doreboot" -eq 1 ] && rm -f "$REBOOT_STAMP"
+    if [ "$doreboot" -eq 1 ]; then rb=', rebooting'
+    elif [ "$need" -eq 1 ]; then
+        if [ "$later" -eq 1 ]; then rb=", reboot in the maintenance window$( [ -n "$MAINT_NEXT" ] && date -d "@$MAINT_NEXT" '+ %Y-%m-%d %H:%M')"
+        elif [ "$rmode" = window ]; then rb=', reboot required (no maintenance window - reboot by hand)'
+        else rb=', reboot required'; fi
+        [ "$rebootfail" -eq 1 ] && rb="$rb (reboot FAILED: shutdown -r)"
+    fi
     if [ "$rc" -ne 0 ]; then result="FAILED: $err"
-    else result="OK, changed $count packages$( [ "$doreboot" -eq 1 ] && echo ', rebooting')$( [ "$need" -eq 1 ] && [ "$doreboot" -eq 0 ] && echo ', reboot required')$( [ "$rebootfail" -eq 1 ] && echo ' (reboot FAILED: shutdown -r)')"; fi
+    else result="OK, changed $count packages$rb"; fi
+    [ ${#PKGS[@]} -gt 0 ] && result="$result (package update: ${PKGS[*]}${missing[0]:+, not installed: ${missing[*]}})"
     echo "=== Result"
     [ -n "$changes" ] && printf '%s\n' "$changes"
     echo "$result"
@@ -720,7 +847,7 @@ do_update() {
         exit 0
     fi
     if [ "$rebootfail" -eq 1 ]; then echo "ERROR: the reboot failed (shutdown -r), reboot the host by hand" >&2
-    elif [ "$need" -eq 1 ] && [ "$rc" -eq 0 ]; then echo "WARNING: a reboot is required, but REBOOT=\"false\" in $PATCH_CONF" >&2; fi
+    elif [ "$need" -eq 1 ] && [ "$rc" -eq 0 ] && [ -z "$rmode" ]; then echo "WARNING: a reboot is required, but REBOOT=\"false\" in $PATCH_CONF" >&2; fi
     return "$rc"
 }
 if [ "$MODE" = update ]; then

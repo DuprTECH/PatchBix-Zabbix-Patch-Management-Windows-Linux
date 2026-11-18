@@ -893,27 +893,28 @@ zabbix_export:
         - uuid: 755bc789857b41b2a6389621490d3410
           name: 'Patch - Settings from host macros (agent)'
           type: ZABBIX_ACTIVE
-          key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
+          key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}","{$PATCH.CONF.UPDATE_PACKAGE}","{$PATCH.CONF.UPDATE_REBOOT}"]'
           delay: 5m
           history: 30d
           value_type: CHAR
           trends: '0'
           timeout: 20s
           description: |
-            Delivers the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}
-            to the host: the agent (UserParameter patch.config, installed by the setup / --install-agent-config) validates them
+            Delivers the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT},
+            {$PATCH.CONF.UPDATE_PACKAGE} and {$PATCH.CONF.UPDATE_REBOOT} (urgent package update, Linux only) to the host: the agent (UserParameter patch.config, installed by the setup / --install-agent-config) validates them
             and writes the set ones to patchbix-from-zbx-host-macro.cache next to patchbix.conf. Those keys win over
             patchbix.conf, which is never changed from Zabbix. Empty macro = patchbix.conf stays in effect.
             Value: OK, written / unchanged: <keys>, or ERROR: <reason> (then nothing is written).
             The agent forbids * " ' $ ; | # and other characters in the values: window type all = all updates and day 1-7 =
             every day (instead of *), none = no window (no automatic updates); exclude % = wildcard, none = nothing excluded.
-            Not supported = the UserParameter is not installed on the host (run the setup again).
+            Not supported = the UserParameter is not installed on the host (run the setup again). The update macros need the
+            UserParameter of check script 26.11.18 or newer (6 values) - an older one passes only the first four.
           tags:
             - tag: component
               value: maintenance
           triggers:
             - uuid: 219feb389a8c46f6a4bb7eb492b678b1
-              expression: 'find(/PatchBix - Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"],,"like","ERROR")=1'
+              expression: 'find(/PatchBix - Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}","{$PATCH.CONF.UPDATE_PACKAGE}","{$PATCH.CONF.UPDATE_REBOOT}"],,"like","ERROR")=1'
               name: 'Patch settings in the host macros are invalid'
               opdata: '{ITEM.LASTVALUE}'
               priority: WARNING
@@ -1652,7 +1653,7 @@ zabbix_export:
                       name: itemid.0
                       value:
                         host: 'PatchBix - Patch management all OS'
-                        key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
+                        key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}","{$PATCH.CONF.UPDATE_PACKAGE}","{$PATCH.CONF.UPDATE_REBOOT}"]'
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -2469,6 +2470,12 @@ zabbix_export:
         - macro: '{$PATCH.CONF.REBOOT}'
           value: ''
           description: 'Host setting from Zabbix (overrides REBOOT of patchbix.conf): true = reboot after updates when needed, false = only report it. Empty = patchbix.conf.'
+        - macro: '{$PATCH.CONF.UPDATE_PACKAGE}'
+          value: ''
+          description: 'Linux: urgent update of these packages, comma separated, % = wildcard (for example openssl, libssl%). The check script updates them at its next automatic run (cron every 15 min) - right away, also outside the maintenance window and without AUTO_UPDATE, once per value; the result goes to the install items (Patch - Last install result). To run the same value again, clear the macro, wait 15 min and set it again. Reboot: {$PATCH.CONF.UPDATE_REBOOT}. Empty = nothing.'
+        - macro: '{$PATCH.CONF.UPDATE_REBOOT}'
+          value: ''
+          description: 'Linux: reboot after {$PATCH.CONF.UPDATE_PACKAGE} when needed: true = right away, false = in the next maintenance window ({$PATCH.CONF.WINDOW}; without a window only reported), never = only report it. Empty = false.'
         - macro: '{$PATCH.CONF.WINDOW}'
           value: ''
           description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of patchbix.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun or Mon..Sun (1-7 = every day), 1-5 or Mon-Fri, 2.3 = 2nd Wednesday, several days joined with + (Tue+Thu = Tuesday and Thursday). Examples: all Wed 03:00-05:00, all Tue+Thu 03:00-05:00, crit+sec 1-7 02:00-03:00. A * in any of the macros makes the agent refuse all of them (Character "*" is not allowed). none = no window. The automatic updates need {$PATCH.CONF.AUTO_UPDATE} = true (or AUTO_UPDATE="true" in patchbix.conf). Empty = patchbix.conf.'

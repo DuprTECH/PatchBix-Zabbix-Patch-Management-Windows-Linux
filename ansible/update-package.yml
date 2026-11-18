@@ -1,0 +1,110 @@
+---
+# ----------------------------------------------------------------------------
+# Urgent update of named packages on Linux hosts (a critical fix), right away - also outside the
+# maintenance window and also when the packages are in EXCLUDE - and the result in PatchBix.
+#
+#   ansible-playbook -i inventory.ini ansible/update-package.yml -e packages=openssl
+#   ansible-playbook -i inventory.ini ansible/update-package.yml -e "packages='openssl, libssl*'" -l web01,web02
+#   ansible-playbook -i inventory.ini ansible/update-package.yml -e packages=openssl -e patch_reboot=true
+#
+# Hosts: the group linux (-e target=<group> for another one, -l to limit it).
+#
+#   packages       package names, comma separated (or a list), wildcards allowed ('libssl*'); only installed
+#                  packages are updated (and the dependencies they need), hosts without them are reported
+#   patch_reboot   reboot when the update needs it: true = right away (the playbook waits for the host),
+#                  false = in the next maintenance window of the host (default; without a window only reported),
+#                  never = only report it
+#
+# The check script (patchbix-linux.sh --update-package) does the update on the host and sends the result
+# to Zabbix itself (template 'PatchBix - Patch management all OS': Patch - Last install result / list /
+# status), then runs the check, so the dashboards show the new state right away.
+# The same without Ansible: the host macros {$PATCH.CONF.UPDATE_PACKAGE} and {$PATCH.CONF.UPDATE_REBOOT}.
+#
+# Hosts with an older check script get the one next to this playbook (../scripts/patchbix-linux.sh).
+#
+# Author : Dusan Priechodsky
+# Source : https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
+# Contact: info@duprtech.sk
+# License: MIT
+# ----------------------------------------------------------------------------
+- name: Urgent package update (PatchBix)
+  hosts: "{{ target | default('linux') }}"
+  become: true
+  gather_facts: true
+  serial: "{{ patch_serial | default('100%') }}"
+
+  vars:
+    patch_reboot: false
+    patch_reboot_timeout: 3600
+    linux_check_script: /usr/local/bin/patchbix-linux.sh
+    linux_check_script_src: "{{ playbook_dir }}/../scripts/patchbix-linux.sh"
+    supported_pkg_mgrs: [apt, dnf, dnf5, yum]
+    # packages as a string "a, b" or a list
+    pkg_list: >-
+      {{ (packages if packages is not string else (packages | regex_replace('[,\s]+', ' ') | trim | split(' ')))
+         | default([]) | select | list }}
+    reboot_arg: >-
+      {{ 'true' if (patch_reboot | string | lower) in ['true', 'yes', '1', 'on', 'now']
+         else ('never' if (patch_reboot | string | lower) in ['never', 'no-reboot'] else 'false') }}
+
+  tasks:
+    - name: Check the input
+      ansible.builtin.assert:
+        that:
+          - packages is defined
+          - pkg_list | length > 0
+          - pkg_list | reject('match', '^[A-Za-z0-9][A-Za-z0-9.+_:*?-]*$') | list | length == 0
+        fail_msg: "Set the packages: -e packages=openssl (comma separated, wildcards allowed), got: {{ packages | default('nothing') }}"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Skip Windows and unsupported package managers
+      when: ansible_os_family == 'Windows' or ansible_pkg_mgr not in supported_pkg_mgrs
+      block:
+        - name: Warning - skipped
+          ansible.builtin.debug:
+            msg: "SKIPPED: {{ inventory_hostname }} ({{ ansible_os_family }}, {{ ansible_pkg_mgr | default('?') }}) - the package update supports apt, dnf and yum"
+
+        - name: End the host
+          ansible.builtin.meta: end_host
+
+    - name: Does the check script support --update-package
+      ansible.builtin.command: grep -q -- '--update-package)' {{ linux_check_script }}
+      register: pbx_support
+      changed_when: false
+      failed_when: false
+
+    - name: Install the current check script
+      ansible.builtin.copy:
+        src: "{{ linux_check_script_src }}"
+        dest: "{{ linux_check_script }}"
+        owner: root
+        group: root
+        mode: "0755"
+      when: pbx_support.rc != 0
+
+    - name: Update the packages {{ pkg_list | join(', ') }}
+      ansible.builtin.command:
+        argv:
+          - "{{ linux_check_script }}"
+          - --update-package
+          - "{{ pkg_list | join(',') }}"
+          - --reboot
+          - "{{ reboot_arg }}"
+      register: pbx_update
+      changed_when: pbx_update.stdout is search('OK, changed [1-9]')
+      failed_when: pbx_update.rc != 0 or pbx_update.stdout is search('FAILED')
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: >-
+          {{ pbx_update.stdout_lines | select('match', '^(Upgrade|Install|Remove|Not installed|OK|FAILED)') | list
+             + (pbx_update.stderr_lines | default([])) }}
+
+    - name: Wait for the host after the reboot
+      ansible.builtin.wait_for_connection:
+        delay: 180
+        timeout: "{{ patch_reboot_timeout }}"
+      when: pbx_update.stdout is search('Rebooting in 2 minutes')

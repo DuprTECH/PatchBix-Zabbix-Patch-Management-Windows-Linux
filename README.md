@@ -69,6 +69,7 @@ By default the check script **only reports** (`AUTO_UPDATE` not set = false), se
 | `scripts/embed-check.sh` | Embeds the committed check scripts into the setup scripts |
 | `ansible/check-windows.yml`, `ansible/check-linux.yml` | The check script and its schedule with Ansible, for many hosts at once |
 | `ansible/patch-and-report.yml` | Ansible playbook: install updates on Windows and Linux, report to Zabbix |
+| `ansible/update-package.yml` | Ansible playbook: [urgent update of named packages](#urgent-update-of-a-package-critical-fix) on Linux (critical fix), result to Zabbix |
 | `ansible/inventory.example.ini` | Example inventory |
 | [`old/`](old/README.md) | The original Windows only template `APP Winupdates check` (legacy) |
 
@@ -253,6 +254,10 @@ AUTO_UPDATE="true"
 EXCLUDE="kernel*, docker-ce"
 # reboot after updates when needed: true / false (false = the reboot is only reported)
 REBOOT="true"
+# Linux: urgent update of these packages at the next automatic run, once per value (see below)
+UPDATE_PACKAGE="openssl, libssl*"
+# its reboot when needed: true = right away, false = in the next maintenance window (default), never
+UPDATE_REBOOT="false"
 ```
 
 - The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Auto update (maintenance window)*, *Excluded updates*, *Reboot allowed*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
@@ -272,6 +277,20 @@ REBOOT="true"
 - Your **install job** reads the settings with `patchbix-linux.sh --show-config` / `patchbix-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_types` (update types of the open window), `maintenance_next`, `exclude`, `reboot_allowed`, `auto_update`, `auto_update_blocked` and `config_summary`.
 - **Nothing is set after the installation**: the setup scripts and the Ansible playbooks write `patchbix.conf` with the descriptions and the settings **commented out** – the host only reports (no automatic updates). A setting that is commented out is not set and its default applies: no window (no automatic updates), nothing excluded, `REBOOT="true"`. The setup scripts (choice 1 monitor) show the values already in the file and keep them, or ask for new ones (Enter = keep, `-` = not set), so running them again updates an installed host. Or just edit the file – the next run uses the new values – or set the [host macros](#settings-from-zabbix-host-macros) in Zabbix.
 
+### Urgent update of a package (critical fix)
+
+When a critical fix comes out, update just the affected packages on Linux right away – also outside the maintenance window, without `AUTO_UPDATE` and also when they are in `EXCLUDE`. Only installed packages are updated (with the dependencies they need); hosts without them report `not installed`. The result goes to the `patch.install.*` items (*Patch - Last install result*, e.g. `OK, changed 2 packages, reboot in the maintenance window 2026-11-21 03:00 (package update: openssl libssl*)`), then the check runs, so the dashboards show the new state.
+
+| | How | Reboot when needed |
+|---|---|---|
+| **Zabbix** | host macro `{$PATCH.CONF.UPDATE_PACKAGE}` = `openssl, libssl%` – done at the next automatic run (cron every 15 min), once per value | `{$PATCH.CONF.UPDATE_REBOOT}`: `true` = right away, `false` = in the next maintenance window (default), `never` = only report it |
+| **Ansible** | `ansible-playbook -i inventory.ini ansible/update-package.yml -e packages=openssl` (`-l web01` to limit the hosts) | `-e patch_reboot=true` / `false` (default) / `never`; with `true` the playbook waits for the host |
+| **On the host** | `patchbix-linux.sh --update-package "openssl, libssl*"` | `--reboot true` / `false` / `never` (default `UPDATE_REBOOT`) |
+
+- **Reboot in the maintenance window** (`false`): when the window is open, the host reboots right away; otherwise the automatic run reboots it when the next window opens (`MAINTENANCE_WINDOW` / `{$PATCH.CONF.WINDOW}`, also without `AUTO_UPDATE`). Without a window the reboot is only reported (*reboot by hand*). A reboot in the meantime cancels it.
+- **Once per value**: the macro stays set, but the update runs only once for it. To run the same packages again, clear the macro, wait 15 minutes and set it again (or change the value).
+- The macros need the `UserParameter` of check script 26.11.18 or newer – run the setup script / playbook again on the hosts (it updates it and restarts the agent).
+
 ### Settings from Zabbix (host macros)
 
 The same settings can be set in Zabbix, per host (or in a template linked to a group of hosts), without access to the host – only the Zabbix agent is needed:
@@ -282,6 +301,8 @@ The same settings can be set in Zabbix, per host (or in a template linked to a g
 | `{$PATCH.CONF.WINDOW}` | `MAINTENANCE_WINDOW` | `all Wed 03:00-05:00`, `all Tue+Thu 03:00-05:00`, `all Mon-Fri 03:00-05:00`, `crit+sec 1-7 02:00-03:00, all Sat 03:00-06:00`; **`all` = all update types, `1-7` = every day, `Tue+Thu` = Tuesday and Thursday** (the agent doesn't allow `*`), `none` = no window |
 | `{$PATCH.CONF.EXCLUDE}` | `EXCLUDE` | `kernel%, docker-ce` – **`%` = wildcard** (the agent doesn't allow `*`), `none` = nothing excluded |
 | `{$PATCH.CONF.REBOOT}` | `REBOOT` | `true` / `false` |
+| `{$PATCH.CONF.UPDATE_PACKAGE}` | `UPDATE_PACKAGE` | Linux: `openssl, libssl%` – [urgent package update](#urgent-update-of-a-package-critical-fix) at the next automatic run, `%` = wildcard |
+| `{$PATCH.CONF.UPDATE_REBOOT}` | `UPDATE_REBOOT` | `true` = reboot right away, `false` = in the maintenance window (default), `never` |
 
 > ⚠️ **No `*` in the macros.** The Zabbix agent (`UnsafeUserParameters=0`) refuses the whole item when a macro value has `*` (or `"` `'` `$` `;` `|` `#` …): the item *Patch - Settings from host macros (agent)* becomes *not supported* with `Character "*" is not allowed` and **none of the macros of the host get to it** – also not `{$PATCH.CONF.AUTO_UPDATE}`, so the host stays at check only. Use `all` for the update types, `1-7` (or `Mon-Sun`) for every day and `%` as the wildcard in `{$PATCH.CONF.EXCLUDE}`. In `patchbix.conf` `*` works.
 
@@ -316,6 +337,7 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 | `{$PATCH.LASTUPDATE.MAXAGE}` | `30d` | Alert when no updates were installed for this time and security or critical updates are pending (drivers, definitions and other updates alone do not alert) |
 | `{$PATCH.CHECK.CMD}` | `/usr/local/bin/patchbix-linux.sh` | Command of the agent item *Patch - Run update check* |
 | `{$PATCH.CONF.WINDOW}`, `{$PATCH.CONF.AUTO_UPDATE}`, `{$PATCH.CONF.EXCLUDE}`, `{$PATCH.CONF.REBOOT}` | empty | Patch settings from Zabbix, override `patchbix.conf` – see [Settings from Zabbix](#settings-from-zabbix-host-macros) |
+| `{$PATCH.CONF.UPDATE_PACKAGE}`, `{$PATCH.CONF.UPDATE_REBOOT}` | empty | Linux: [urgent package update](#urgent-update-of-a-package-critical-fix) and its reboot (`true` = right away, `false` = in the maintenance window) |
 
 ## Notes
 
