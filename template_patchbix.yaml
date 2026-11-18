@@ -53,6 +53,7 @@ zabbix_export:
           name: 'Patch - Last check time'
           type: TRAP
           key: patch.check.timestamp
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: '0'
           units: unixtime
@@ -91,6 +92,7 @@ zabbix_export:
           name: 'Patch - Check duration'
           type: TRAP
           key: patch.check.duration
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 30d
           trends: 90d
           units: s
@@ -102,6 +104,7 @@ zabbix_export:
           name: 'Patch - Check result'
           type: TRAP
           key: patch.check.result
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 30d
           value_type: CHAR
           trends: '0'
@@ -126,6 +129,7 @@ zabbix_export:
           name: 'Patch - OS family'
           type: TRAP
           key: patch.os
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 30d
           value_type: CHAR
           trends: '0'
@@ -141,6 +145,7 @@ zabbix_export:
           name: 'Patch - OS name'
           type: TRAP
           key: patch.os.name
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           value_type: CHAR
           trends: '0'
@@ -156,6 +161,7 @@ zabbix_export:
           name: 'Patch - OS version / kernel'
           type: TRAP
           key: patch.os.version
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           value_type: CHAR
           trends: '0'
@@ -171,6 +177,7 @@ zabbix_export:
           name: 'Patch - Check script version'
           type: TRAP
           key: patch.script.version
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           value_type: CHAR
           trends: '0'
@@ -186,6 +193,7 @@ zabbix_export:
           name: 'Patch - Update source'
           type: TRAP
           key: patch.source
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 30d
           value_type: CHAR
           trends: '0'
@@ -201,6 +209,7 @@ zabbix_export:
           name: 'Patch - Update source availability'
           type: TRAP
           key: patch.source.available
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: |
@@ -228,6 +237,7 @@ zabbix_export:
           name: 'Patch - Automatic updates'
           type: TRAP
           key: patch.autoupdate
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: |
@@ -280,6 +290,7 @@ zabbix_export:
           name: 'Patch - Automatic updates detail'
           type: TRAP
           key: patch.autoupdate.detail
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           value_type: TEXT
           trends: '0'
@@ -299,6 +310,7 @@ zabbix_export:
           name: 'Patch - Windows Update service startup type'
           type: TRAP
           key: patch.service.startup
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: |
@@ -326,6 +338,7 @@ zabbix_export:
           name: 'Patch - Updates: All'
           type: TRAP
           key: patch.updates.all
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'All pending updates (Windows: updates and drivers, not hidden; Linux: packages to upgrade / install).'
@@ -362,6 +375,7 @@ zabbix_export:
           name: 'Patch - Updates: Security'
           type: TRAP
           key: patch.updates.security
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: |
@@ -391,6 +405,7 @@ zabbix_export:
           name: 'Patch - Updates: Critical'
           type: TRAP
           key: patch.updates.critical
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: |
@@ -418,6 +433,7 @@ zabbix_export:
           name: 'Patch - Updates: Bugfix'
           type: TRAP
           key: patch.updates.bugfix
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Windows: classification Updates. Linux (dnf / yum): packages with a bugfix advisory. Not sent on Debian / Ubuntu.'
@@ -428,6 +444,7 @@ zabbix_export:
           name: 'Patch - Updates: Enhancement'
           type: TRAP
           key: patch.updates.enhancement
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Windows: classification Feature Packs. Linux (dnf / yum): packages with an enhancement advisory. Not sent on Debian / Ubuntu.'
@@ -438,6 +455,7 @@ zabbix_export:
           name: 'Patch - Updates: Kernel'
           type: TRAP
           key: patch.updates.kernel
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Linux: pending kernel packages (linux-image-*, kernel, kernel-core, ...). Windows: 0.'
@@ -448,6 +466,7 @@ zabbix_export:
           name: 'Patch - Updates: Held / hidden'
           type: TRAP
           key: patch.updates.held
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Updates excluded from patching. Windows: hidden updates. Linux: packages on hold (apt-mark hold) or version locked (dnf / yum versionlock).'
@@ -458,6 +477,7 @@ zabbix_export:
           name: 'Patch - Updates: Definition'
           type: TRAP
           key: patch.updates.definition
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Windows: classification Definition Updates (Microsoft Defender). Linux: 0.'
@@ -468,6 +488,7 @@ zabbix_export:
           name: 'Patch - Updates: Service packs'
           type: TRAP
           key: patch.updates.servicepacks
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Windows: classification Service Packs. Linux: 0.'
@@ -478,6 +499,7 @@ zabbix_export:
           name: 'Patch - Updates: Update rollups'
           type: TRAP
           key: patch.updates.updaterollups
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Windows: classification Update Rollups. Linux: 0.'
@@ -488,6 +510,7 @@ zabbix_export:
           name: 'Patch - Updates: Drivers'
           type: TRAP
           key: patch.updates.drivers
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Windows: driver updates. Linux: 0.'
@@ -498,6 +521,7 @@ zabbix_export:
           name: 'Patch - Updates: Upgrades'
           type: TRAP
           key: patch.updates.upgrades
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Windows: classification Upgrades (feature update to a new Windows version). Linux: 0.'
@@ -508,6 +532,7 @@ zabbix_export:
           name: 'Patch - Severity: Critical'
           type: TRAP
           key: patch.updates.severity.critical
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Pending updates with severity Critical. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
@@ -518,6 +543,7 @@ zabbix_export:
           name: 'Patch - Severity: Important'
           type: TRAP
           key: patch.updates.severity.important
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Pending updates with severity Important. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
@@ -528,6 +554,7 @@ zabbix_export:
           name: 'Patch - Severity: Moderate'
           type: TRAP
           key: patch.updates.severity.moderate
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Pending updates with severity Moderate. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
@@ -538,6 +565,7 @@ zabbix_export:
           name: 'Patch - Severity: Low'
           type: TRAP
           key: patch.updates.severity.low
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Pending updates with severity Low. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
@@ -548,6 +576,7 @@ zabbix_export:
           name: 'Patch - Pending updates list'
           type: TRAP
           key: patch.updates.list
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           value_type: TEXT
           trends: '0'
@@ -567,6 +596,7 @@ zabbix_export:
           name: 'Patch - Update history'
           type: TRAP
           key: patch.history
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           value_type: TEXT
           trends: '0'
@@ -588,6 +618,7 @@ zabbix_export:
           name: 'Patch - Reboot required'
           type: TRAP
           key: patch.reboot.required
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: |
@@ -627,6 +658,7 @@ zabbix_export:
           name: 'Patch - Reboot reason'
           type: TRAP
           key: patch.reboot.reason
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           value_type: TEXT
           trends: '0'
@@ -642,6 +674,7 @@ zabbix_export:
           name: 'Patch - Last reboot time'
           type: TRAP
           key: patch.lastboot
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           trends: '0'
           units: unixtime
@@ -666,6 +699,7 @@ zabbix_export:
           name: 'Patch - Last update installed'
           type: TRAP
           key: patch.lastupdate.timestamp
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           trends: '0'
           units: unixtime
@@ -706,6 +740,7 @@ zabbix_export:
           name: 'Patch - Patch day'
           type: TRAP
           key: patch.lastupdate.patchday
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           value_type: CHAR
           trends: '0'
@@ -722,6 +757,7 @@ zabbix_export:
           name: 'Patch install - Last run time'
           type: TRAP
           key: patch.install.timestamp
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           trends: '0'
           units: unixtime
@@ -746,6 +782,7 @@ zabbix_export:
           name: 'Patch install - Status'
           type: TRAP
           key: patch.install.status
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           trends: 365d
           description: 'Result of the last install run: 0 - OK, 1 - failed'
@@ -771,6 +808,7 @@ zabbix_export:
           name: 'Patch install - Result'
           type: TRAP
           key: patch.install.result
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           value_type: TEXT
           trends: '0'
@@ -782,6 +820,7 @@ zabbix_export:
           name: 'Patch install - Installed count'
           type: TRAP
           key: patch.install.count
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           trends: 365d
           description: 'Number of updates installed in the last install run'
@@ -792,6 +831,7 @@ zabbix_export:
           name: 'Patch install - Failed count'
           type: TRAP
           key: patch.install.failed
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           trends: 365d
           description: 'Number of updates that failed to install in the last install run'
@@ -802,6 +842,7 @@ zabbix_export:
           name: 'Patch install - Installed updates'
           type: TRAP
           key: patch.install.list
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           value_type: TEXT
           trends: '0'
@@ -813,6 +854,7 @@ zabbix_export:
           name: 'Patch - Maintenance window'
           type: TRAP
           key: patch.maintenance.window
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           value_type: CHAR
           trends: '0'
@@ -855,6 +897,7 @@ zabbix_export:
           name: 'Patch - Next maintenance window'
           type: TRAP
           key: patch.maintenance.next
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: '0'
           units: unixtime
@@ -866,6 +909,7 @@ zabbix_export:
           name: 'Patch - Reboot allowed'
           type: TRAP
           key: patch.reboot.allowed
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'REBOOT from the patch settings of the host (patchbix.conf): 1 - the install job may reboot the host, 0 - it only reports the reboot.'
@@ -878,6 +922,7 @@ zabbix_export:
           name: 'Patch - Auto update'
           type: TRAP
           key: patch.autoupdate.config
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: |
@@ -894,6 +939,7 @@ zabbix_export:
           name: 'Patch - Urgent package update'
           type: TRAP
           key: patch.update.package
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           value_type: CHAR
           trends: '0'
@@ -908,6 +954,7 @@ zabbix_export:
           name: 'Patch - Reboot after urgent update'
           type: TRAP
           key: patch.update.reboot
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: '0'
           description: 'Linux: reboot after the urgent package update when needed (UPDATE_REBOOT, host macro {$PATCH.CONF.UPDATE_REBOOT}): 2 - right away, 1 - in the maintenance window, after its updates (default), 0 - never (only reported).'
@@ -920,6 +967,7 @@ zabbix_export:
           name: 'Patch - Reboot scheduled (maintenance window)'
           type: TRAP
           key: patch.reboot.scheduled
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: '0'
           units: unixtime
@@ -967,6 +1015,7 @@ zabbix_export:
           name: 'Patch - Config'
           type: TRAP
           key: patch.config.override
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           value_type: TEXT
           trends: '0'
@@ -996,6 +1045,7 @@ zabbix_export:
           name: 'Patch - Excluded updates (config)'
           type: TRAP
           key: patch.exclude
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 365d
           value_type: TEXT
           trends: '0'
@@ -1013,6 +1063,7 @@ zabbix_export:
           name: 'Patch - Updates: Excluded'
           type: TRAP
           key: patch.updates.excluded
+          allowed_hosts: '0.0.0.0/0,::/0'
           history: 90d
           trends: 365d
           description: 'Pending updates that match EXCLUDE (they are not installed). They are included in the other counts and marked "(excluded)" in the pending updates list.'
