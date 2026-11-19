@@ -2,7 +2,7 @@
 
 **PatchBix** is **Zabbix patch management**: the update status and the updates of Windows and Linux servers, monitored and managed from Zabbix.
 
-One Zabbix 7.4 template to see the **update status of all your Windows and Linux servers in one place**, with the **same keys on every OS**: how many updates are pending (security, critical, by severity, kernel, …), which ones, what was installed recently, whether a reboot is needed, when the host was last patched and with what result.
+One Zabbix template – for **Zabbix 7.4 and Zabbix 8.0** – to see the **update status of all your Windows and Linux servers in one place**, with the **same keys on every OS**: how many updates are pending (security, critical, by severity, kernel, …), which ones, what was installed recently, whether a reboot is needed, when the host was last patched and with what result.
 
 > **Update management fully controlled from Zabbix – no extra ports, no extra agent.**
 > Everything goes over the existing **Zabbix agent communication** (the agent's active checks and zabbix_sender to the Zabbix server / proxy, port 10051 – the same connection the agent already uses). There is no inbound port to open on the hosts and no other management server or agent to install.
@@ -11,6 +11,16 @@ One Zabbix 7.4 template to see the **update status of all your Windows and Linux
 ![Host dashboard included in the template (sample data)](images/host_dashboard_1.png)
 
 *Host dashboard **PatchBix - Patch management**, included in the template (sample data). More screenshots, including the global dashboard of all hosts, are in [Dashboards](#dashboards).*
+
+## 🆕 What's new
+
+- 🆕 **Zabbix 8.0**: the template is exported for Zabbix 8.0 too (`template_patchbix_8.0.yaml`), next to the Zabbix 7.4 template (`template_patchbix.yaml`) – the same items, triggers and dashboard. This version is published only here; the [Zabbix community templates](https://github.com/zabbix/community-templates) have the 7.4 template.
+- 🚨 **Forced update for a critical vulnerability**: update just the affected packages on Linux right away from Zabbix (`{$PATCH.CONF.UPDATE_PACKAGE}`), with Ansible or on the host – also outside the maintenance window, without `AUTO_UPDATE` and also when they are excluded. The reboot runs right away or in the next maintenance window, after its updates. Shown on the host dashboard – see [Urgent update of a package](#urgent-update-of-a-package-critical-fix).
+- 🚫 **Excluded updates**: updates and packages that are never installed (`EXCLUDE` / `{$PATCH.CONF.EXCLUDE}`), per host, per template or globally; pending updates that match are marked `(excluded)`.
+- 🗓️ **Maintenance window on several days** (`Tue+Thu`), Linux updates **keep 3 kernels** (the running one and 2 fallback).
+- 📈 Item **Updates: Actionable** (without definitions and drivers); the trigger *No updates installed* alerts only when security or critical updates are pending (`{$PATCH.LASTUPDATE.MAXAGE}` = 30d).
+- 🪟 Windows: the result of the install run is saved and can be sent again (`-ResendInstall`); Microsoft Store app updates are left out of the update history.
+- 🛡️ **Allowed hosts of the trapper items** are set in the template (`0.0.0.0/0,::/0`) – without them Zabbix 8.0 refuses the values of the hosts after the import.
 
 ## ✨ Highlights
 
@@ -62,6 +72,7 @@ By default the check script **only reports** (`AUTO_UPDATE` not set = false), se
 | File | Description |
 |------|-------------|
 | `template_patchbix.yaml` | Zabbix **7.4** export with the template `PatchBix - Patch management all OS` (items, triggers, host dashboard) |
+| `template_patchbix_8.0.yaml` | The same template exported from Zabbix **8.0** |
 | `scripts/patchbix-windows.ps1` | Windows check script (PowerShell, Windows Update Agent API); optionally installs the updates (`-Update`, `-AutoUpdate`) |
 | `scripts/patchbix-linux.sh` | Linux check script (bash, apt / dnf / yum); optionally installs the updates (`--update`, `--auto-update`) |
 | `scripts/patchbix-setup-windows.ps1` | Setup on one Windows host without Ansible (menu: monitor / check / update / force): installs / updates the embedded check script, schedules it (Task Scheduler: check, check after a reboot, automatic update), writes `patchbix.conf`, installs the `UserParameter` for the host macros and runs the check |
@@ -151,7 +162,7 @@ The template contains the dashboard **PatchBix - Patch management**, shown for e
 
 ## Requirements
 
-- Zabbix server / proxy **7.4** or newer, reachable from the hosts on port **10051** (zabbix_sender)
+- Zabbix server / proxy **7.4** or **8.0**, reachable from the hosts on port **10051** (zabbix_sender)
 - **Windows**: Zabbix agent 2 (includes `zabbix_sender.exe`), Windows PowerShell 5.1
 - **Linux**: `zabbix_sender` (package `zabbix-sender`), bash; `needs-restarting` (dnf-utils / yum-utils) on RHEL for the reboot check
 - **Ansible** (optional): `zabbix_sender` on the controller, collection `ansible.windows` for Windows hosts
@@ -160,7 +171,7 @@ The template contains the dashboard **PatchBix - Patch management**, shown for e
 ## Installation
 
 ### Zabbix
-1. Import `template_patchbix.yaml` (*Data collection → Templates → Import*).
+1. Import the template (*Data collection → Templates → Import*): `template_patchbix.yaml` on Zabbix 7.4, `template_patchbix_8.0.yaml` on Zabbix 8.0.
 2. Link `PatchBix - Patch management all OS` to Windows and Linux hosts.
 
 ### Windows

@@ -1,0 +1,2680 @@
+zabbix_export:
+  version: '8.0'
+  template_groups:
+    - uuid: 846977d1dfed4968bc5f8bdb363285bc
+      name: 'Templates/Operating systems'
+  templates:
+    - uuid: 5063f5f454c64dbd9a3f7fe7f79ca809
+      template: 'PatchBix - Patch management all OS'
+      name: 'PatchBix - Patch management all OS'
+      description: |
+        PatchBix - Zabbix patch management. OS independent patch management monitoring for Windows and Linux: one template, the same keys (patch.*) on all hosts,
+        so dashboards, triggers and reports work the same for every OS.
+        Update management fully controlled from Zabbix, no extra port: the host macros {$PATCH.CONF.WINDOW} (maintenance
+        window and update types), {$PATCH.CONF.AUTO_UPDATE} (automatic updates on / off), {$PATCH.CONF.EXCLUDE} (excluded
+        updates) and {$PATCH.CONF.REBOOT} (reboot allowed) are delivered by the Zabbix agent; the check script installs the
+        updates in the window and reports back over the existing agent / zabbix_sender connection to the server or proxy.
+        - Pending updates: all, security, critical, bugfix, enhancement, kernel, held / hidden, severity (critical / important / moderate / low)
+        - OS specific categories: definition, service packs, update rollups, drivers, upgrades (Windows), kernel (Linux); 0 on the other OS
+        - Pending updates list and recent update history (log of installed / upgraded / removed updates)
+        - Reboot required and its reason, last reboot time, uptime
+        - Last update installed (detected on the host) and its patch day, last install run (sent by the install job / Ansible)
+        - OS name and version / kernel, update source and its availability, automatic updates, Windows Update service
+        - Last check time, age, duration and result
+        - Patch settings of the host (patchbix.conf): maintenance window (when and which update types the
+          check script installs) and the next window, excluded updates (and how many pending updates they match), reboot allowed
+        - Host dashboard 'PatchBix - Patch management': overview, categories and severity, installs and history
+        
+        Data are sent with zabbix_sender (trapper items) by the check scripts patchbix-windows.ps1 and patchbix-linux.sh,
+        started by Task Scheduler / cron or by the Zabbix agent. Values that can't be determined on an OS are not sent
+        (for example severity on Ubuntu or on Debian without debsecan), so the item stays empty.
+        Requirements: Zabbix 7.4+, zabbix_sender on the hosts.
+        Source: https://github.com/DuprTECH/PatchBix-Zabbix-Patch-Management-Windows-Linux
+        Contact / custom work: info@duprtech.sk
+      groups:
+        - name: 'Templates/Operating systems'
+      items:
+        - uuid: 6e5c974912164d03b4d549dc6c72b4b9
+          name: 'Patch - Automatic updates'
+          type: TRAP
+          key: patch.autoupdate
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            How updates are installed automatically (the exact setting is in "Patch - Automatic updates detail"):
+            0 - disabled, nothing installs updates automatically (Windows: also notify / download only - AUOptions 2, 3, 7,
+                NoAutoUpdate=1, the service disabled, or no policy on Windows Server)
+            1 - OS, security updates only (Linux: unattended-upgrades with the default security origins, dnf-automatic upgrade_type = security, yum-cron update_cmd = security)
+            2 - OS, all updates (Linux: unattended-upgrades with the -updates origin, dnf-automatic / yum-cron default;
+                Windows: policy AUOptions 4 "download and install", or no policy on a Windows client; with WSUS only the approved updates)
+            3 - patch management: a maintenance window and AUTO_UPDATE="true" - the check script installs the update types of the window in it
+            4 - OS and patch management both - choose one of them
+            5 - Azure Update Manager (Azure Arc): scheduled patching (maintenance configuration in Azure) - a scheduled run of the
+                extension LinuxOsUpdateExtension / WindowsOsUpdateExtension in the last 35 days; the detail shows the last run
+                (time, classifications, reboot setting, duration, result). Arc with the periodic assessment only doesn't change the value.
+            6 - Azure Update Manager and patch management both - choose one of them
+            7 - SCCM / ConfigMgr (Windows): the client runs and software updates are enabled in its client settings
+                (CCM_SoftwareUpdatesClientConfig.Enabled) - SCCM deploys and installs the updates; the detail shows the site,
+                the management point, the deployed updates pending and the next deadline. A client with software updates
+                disabled doesn't change the value.
+            8 - SCCM and patch management both - choose one of them
+          valuemap:
+            name: 'Automatic updates'
+          tags:
+            - tag: component
+              value: system
+          triggers:
+            - uuid: 40e18b5e96bb46d69c9891a3e74dcb98
+              expression: 'last(/PatchBix - Patch management all OS/patch.autoupdate)=0'
+              name: 'Automatic updates are disabled'
+              status: DISABLED
+              priority: INFO
+              tags:
+                - tag: scope
+                  value: notice
+                - tag: service
+                  value: patch-management
+            - uuid: 6bb51f7116b44fad9677ff758062d3a3
+              expression: 'last(/PatchBix - Patch management all OS/patch.autoupdate)=4 or last(/PatchBix - Patch management all OS/patch.autoupdate)=6 or last(/PatchBix - Patch management all OS/patch.autoupdate)=8'
+              name: 'Updates are installed automatically twice (patch management and the OS, Azure Update Manager or SCCM)'
+              opdata: '{ITEM.LASTVALUE}'
+              status: DISABLED
+              priority: WARNING
+              description: 'A maintenance window is set (patch management installs the updates) and the automatic updates of the OS (4) or a scheduled patching of Azure Update Manager (6) or SCCM software updates (8) are enabled too - disable one of them (onboarding disables the OS automatic updates; the Azure schedule is in the maintenance configuration of the Arc machine, SCCM in the client settings / deployments).'
+              tags:
+                - tag: scope
+                  value: notice
+                - tag: service
+                  value: patch-management
+        - uuid: ad3c2ba3f80541e58cde01e4cc0b6876
+          name: 'Patch - Auto update'
+          type: TRAP
+          key: patch.autoupdate.config
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Automatic updates by the check script:
+            1 - a maintenance window and AUTO_UPDATE="true": the check script installs the update types of the window itself in it
+                (once per window, cron / task every 15 min); the result of the install runs goes to the "Patch install" items,
+            0 - check only (default): no window, or AUTO_UPDATE not true - the windows can be set first and turned on later.
+          valuemap:
+            name: Enabled
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: bc42cfa332c14978b10113dc377fe8da
+          name: 'Patch - Automatic updates detail'
+          type: TRAP
+          key: patch.autoupdate.detail
+          history: 90d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            The exact automatic update setting of the host, for example:
+            Windows Update: download only, notify to install (AUOptions 3); WSUS http://wsus:8530 (approved updates only)
+            unattended-upgrades: security updates only
+            Patch management (maintenance window 'crit+sec * 02:00-03:00'); Windows Update: disabled by policy (NoAutoUpdate=1)
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: system
+        - uuid: a0eb93727ce24bfaaa7b00afedbbb607
+          name: 'Patch - Last check age'
+          type: CALCULATED
+          key: patch.check.age
+          delay: 5m
+          history: 30d
+          trends: '0'
+          units: uptime
+          params: now()-last(//patch.check.timestamp)
+          description: 'Time since the last update check'
+          tags:
+            - tag: component
+              value: check
+        - uuid: eee9758039be426d8873849cc9406ba6
+          name: 'Patch - Check duration'
+          type: TRAP
+          key: patch.check.duration
+          history: 30d
+          trends: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          units: s
+          description: 'How long the last update check took'
+          tags:
+            - tag: component
+              value: check
+        - uuid: 2bcba909a04d4553b3852925cb82bf25
+          name: 'Patch - Check result'
+          type: TRAP
+          key: patch.check.result
+          history: 30d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Result of the last update check: OK or ERROR: <reason>. The update counts are not sent when the check fails.'
+          tags:
+            - tag: component
+              value: check
+          triggers:
+            - uuid: 7b8d1cbf82404350a83dabe0adff5cd5
+              expression: 'find(/PatchBix - Patch management all OS/patch.check.result,,"regexp","^ERROR")=1'
+              name: 'Update check failed'
+              opdata: '{ITEM.LASTVALUE1}'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: availability
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: 0bac5250c8254561bae4dd00d6c0a7af
+          name: 'Patch - Last check time'
+          type: TRAP
+          key: patch.check.timestamp
+          history: 90d
+          trends: '0'
+          allowed_hosts: '0.0.0.0/0,::/0'
+          units: unixtime
+          description: 'Time of the last update check'
+          tags:
+            - tag: component
+              value: check
+          triggers:
+            - uuid: 2c28f0b2746643c696ab6a3a66b52c3b
+              expression: 'nodata(/PatchBix - Patch management all OS/patch.check.timestamp,{$PATCH.NODATA})=1'
+              name: 'No update check data for {$PATCH.NODATA}'
+              status: DISABLED
+              priority: WARNING
+              description: 'The update check script has not sent any data. Check that it runs (cron / Task Scheduler / agent item) and that zabbix_sender can reach the Zabbix server / proxy.'
+              tags:
+                - tag: scope
+                  value: availability
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: e02807b5cd9a45269faa3291f81ee139
+          name: 'Patch - Config'
+          type: TRAP
+          key: patch.config.override
+          history: 90d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            The patch settings that are set on the host, each with its source, for example:
+            ✎ window: crit+sec * 02:00-03:00, ✎ auto update: true, ▤ reboot: false
+            ✎ = Zabbix host macro {$PATCH.CONF.*} (patchbix-from-zbx-host-macro.cache, wins over patchbix.conf),
+            ▤ = patchbix.conf on the host. Empty = nothing set: check only, reboot when needed, nothing excluded.
+            The check script sends [S] / [C], the preprocessing replaces them with the symbols (Unicode BMP characters,
+            they work also with a MySQL database in utf8).
+          preprocessing:
+            - type: STR_REPLACE
+              parameters:
+                - '[S]'
+                - ✎
+            - type: STR_REPLACE
+              parameters:
+                - '[C]'
+                - ▤
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: 755bc789857b41b2a6389621490d3410
+          name: 'Patch - Settings from host macros (agent)'
+          type: ZABBIX_ACTIVE
+          key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}","{$PATCH.CONF.UPDATE_PACKAGE}","{$PATCH.CONF.UPDATE_REBOOT}"]'
+          delay: 5m
+          history: 30d
+          value_type: CHAR
+          description: |
+            Delivers the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT},
+            {$PATCH.CONF.UPDATE_PACKAGE} and {$PATCH.CONF.UPDATE_REBOOT} (urgent package update, Linux only) to the host: the agent (UserParameter patch.config, installed by the setup / --install-agent-config) validates them
+            and writes the set ones to patchbix-from-zbx-host-macro.cache next to patchbix.conf. Those keys win over
+            patchbix.conf, which is never changed from Zabbix. Empty macro = patchbix.conf stays in effect.
+            Value: OK, written / unchanged: <keys>, or ERROR: <reason> (then nothing is written).
+            The agent forbids * " ' $ ; | # and other characters in the values: window type all = all updates and day 1-7 =
+            every day (instead of *), none = no window (no automatic updates); exclude % = wildcard, none = nothing excluded.
+            Not supported = the UserParameter is not installed on the host (run the setup again). The update macros need the
+            UserParameter of check script 26.11.18 or newer (6 values) - an older one passes only the first four.
+          timeout: 20s
+          tags:
+            - tag: component
+              value: maintenance
+          triggers:
+            - uuid: 219feb389a8c46f6a4bb7eb492b678b1
+              expression: 'find(/PatchBix - Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}","{$PATCH.CONF.UPDATE_PACKAGE}","{$PATCH.CONF.UPDATE_REBOOT}"],,"like","ERROR")=1'
+              name: 'Patch settings in the host macros are invalid'
+              opdata: '{ITEM.LASTVALUE}'
+              priority: WARNING
+              description: 'A macro {$PATCH.CONF.*} of the host has an invalid value, the settings from the macros were not changed. See the last value of the item "Patch - Settings from host macros (agent)".'
+              tags:
+                - tag: scope
+                  value: notice
+                - tag: service
+                  value: patch-management
+        - uuid: 9157fc5c931649d2814242ba4a8cd953
+          name: 'Patch - Excluded updates (config)'
+          type: TRAP
+          key: patch.exclude
+          history: 365d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            EXCLUDE from the patch settings of the host (patchbix.conf): updates the install job doesn't install. "-" = none.
+            Linux: package names, wildcards allowed (kernel*, docker-ce). Windows: KB number or a part of the title (KB5034441, Preview).
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: 2bb1bed0cd174cdfbe81f457a4bf9a16
+          name: 'Patch - Update history'
+          type: TRAP
+          key: patch.history
+          history: 365d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Recent update history like a log, newest first (default 50 lines):
+            Windows: 2026-10-01 06:12  Install  Succeeded  2026-10 Cumulative Update for ... (KB5044281)
+                     (Windows Update history, without definition updates; Get-HotFix when there is no history)
+            Debian / Ubuntu: 2026-10-01 06:12  Upgrade  openssl:amd64 3.0.13-0ubuntu3.3 -> 3.0.13-0ubuntu3.4
+                     (/var/log/apt/history.log: Install, Upgrade, Downgrade, Remove, Purge)
+            RHEL family: 2026-10-01 06:12  Installed  openssl-libs 3.0.7-28.el9_4.x86_64 (rpm install time)
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: history
+        - uuid: e036910b38104fef9d9c9352c687402b
+          name: 'Patch install - Last run age'
+          type: CALCULATED
+          key: patch.install.age
+          delay: 5m
+          history: 30d
+          trends: '0'
+          units: uptime
+          params: now()-last(//patch.install.timestamp)
+          description: 'Time since the last install run'
+          tags:
+            - tag: component
+              value: install
+        - uuid: ee2a6dbbf54a45329d59565416028ae9
+          name: 'Patch install - Installed count'
+          type: TRAP
+          key: patch.install.count
+          history: 365d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Number of updates installed in the last install run'
+          tags:
+            - tag: component
+              value: install
+        - uuid: 1b8fab60dc8e4c0eb8c82f91361156a9
+          name: 'Patch install - Failed count'
+          type: TRAP
+          key: patch.install.failed
+          history: 365d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Number of updates that failed to install in the last install run'
+          tags:
+            - tag: component
+              value: install
+        - uuid: f5acef6425214978b9453de24839ecd1
+          name: 'Patch install - Installed updates'
+          type: TRAP
+          key: patch.install.list
+          history: 365d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Updates installed in the last install run, one per line'
+          tags:
+            - tag: component
+              value: install
+        - uuid: 3321b0e657a94da7b01876c236c6c3e1
+          name: 'Patch install - Result'
+          type: TRAP
+          key: patch.install.result
+          history: 365d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Result of the last install run, for example OK, installed 12, failed 0 / FAILED: <error>'
+          tags:
+            - tag: component
+              value: install
+        - uuid: ba0c64a15b994452820ea4fb71c3abef
+          name: 'Patch install - Status'
+          type: TRAP
+          key: patch.install.status
+          history: 365d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Result of the last install run: 0 - OK, 1 - failed'
+          valuemap:
+            name: 'Install status'
+          tags:
+            - tag: component
+              value: install
+          triggers:
+            - uuid: a656888b4c4741619d1ade51bc6008e3
+              expression: 'last(/PatchBix - Patch management all OS/patch.install.status)=1'
+              name: 'Last update install run failed'
+              priority: WARNING
+              manual_close: 'YES'
+              tags:
+                - tag: scope
+                  value: security
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: f692437524f94e0ca60d1f31a08cb25e
+          name: 'Patch install - Last run time'
+          type: TRAP
+          key: patch.install.timestamp
+          history: 365d
+          trends: '0'
+          allowed_hosts: '0.0.0.0/0,::/0'
+          units: unixtime
+          description: 'Time of the last install run, sent by the install job (Ansible playbook, your update script, ...)'
+          tags:
+            - tag: component
+              value: install
+        - uuid: e845746a3fb9401fa17c1aa248760e37
+          name: 'Patch - Last reboot time'
+          type: TRAP
+          key: patch.lastboot
+          history: 365d
+          trends: '0'
+          allowed_hosts: '0.0.0.0/0,::/0'
+          units: unixtime
+          description: 'Time of the last boot of the host'
+          tags:
+            - tag: component
+              value: reboot
+        - uuid: e3ea356db0a74c65a8ccc0c4b02bd242
+          name: 'Patch - Time since last reboot'
+          type: CALCULATED
+          key: patch.lastboot.age
+          delay: 5m
+          history: 30d
+          units: uptime
+          params: now()-last(//patch.lastboot)
+          description: 'Uptime calculated from the last reboot time'
+          tags:
+            - tag: component
+              value: reboot
+        - uuid: e69a2fac57dc41bca7353009136e79be
+          name: 'Patch - Last update age'
+          type: CALCULATED
+          key: patch.lastupdate.age
+          delay: 5m
+          history: 30d
+          units: uptime
+          params: now()-last(//patch.lastupdate.timestamp)
+          description: 'Time since the last installed update'
+          tags:
+            - tag: component
+              value: lastupdate
+        - uuid: 19839983cd974d9b8294100dce646850
+          name: 'Patch - Patch day'
+          type: TRAP
+          key: patch.lastupdate.patchday
+          history: 365d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Day of the month of the last installed update in the local time of the host, for example 2.Tue (2nd Tuesday). Stored in host inventory (Type (Full details)) and used in the trigger tag UpdatePlan.'
+          inventory_link: TYPE_FULL
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: lastupdate
+        - uuid: c19630fb55b8487db358683086297b0a
+          name: 'Patch - Last update installed'
+          type: TRAP
+          key: patch.lastupdate.timestamp
+          history: 365d
+          trends: '0'
+          allowed_hosts: '0.0.0.0/0,::/0'
+          units: unixtime
+          description: |
+            Time of the last installed update, detected by the check script (works with any install method).
+            Windows: last successful install in the Windows Update history (without definition updates).
+            Linux: last entry in /var/log/apt/history.log, or the newest rpm install time.
+          tags:
+            - tag: component
+              value: lastupdate
+        - uuid: ceca732be9b74adea5b91bfab7489265
+          name: 'Patch - Next maintenance window'
+          type: TRAP
+          key: patch.maintenance.next
+          history: 90d
+          trends: '0'
+          allowed_hosts: '0.0.0.0/0,::/0'
+          units: unixtime
+          description: 'Start of the next maintenance window (local time of the host). Not sent when no window is set.'
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: ffb64cc7f5684d3db0748389742c0dbd
+          name: 'Patch - Maintenance window'
+          type: TRAP
+          key: patch.maintenance.window
+          history: 365d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            MAINTENANCE_WINDOW of the host (patchbix.conf or the host macro {$PATCH.CONF.WINDOW}): when and which updates the check
+            script installs itself - "[<types>] <day> <HH:MM>-<HH:MM>", for example "* 3 03:00-05:00" (all updates on Wednesday) or
+            "crit+sec * 02:00-03:00, * 6 03:00-06:00"; types * = all, crit, sec, kernel (Linux), def (Windows), joined with +;
+            days 1-7 = Monday-Sunday or Mon..Sun, several joined with + (Tue+Thu). "-" = no window. The check script installs in the window only with AUTO_UPDATE="true".
+            An invalid window is sent with the error in brackets.
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: maintenance
+          triggers:
+            - uuid: b41743c07d674c97a68914da99090654
+              expression: 'find(/PatchBix - Patch management all OS/patch.maintenance.window,,"like","invalid maintenance window")=1'
+              name: 'Invalid maintenance window in patchbix.conf'
+              priority: WARNING
+              description: 'The install job doesn''t install updates on this host until the window is fixed.'
+              tags:
+                - tag: scope
+                  value: notice
+                - tag: service
+                  value: patch-management
+            - uuid: 63dbdcea11774c53896b47ba7335df46
+              expression: 'last(/PatchBix - Patch management all OS/patch.maintenance.window)="-"'
+              name: 'No maintenance window configured'
+              status: DISABLED
+              priority: INFO
+              description: 'Set MAINTENANCE_WINDOW in patchbix.conf on the host.'
+              tags:
+                - tag: scope
+                  value: notice
+                - tag: service
+                  value: patch-management
+        - uuid: 95178a1f069c419bb196960c80e99458
+          name: 'Patch - OS family'
+          type: TRAP
+          key: patch.os
+          history: 30d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows or Linux'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: system
+        - uuid: 3d29f30e0c4b4cbf9bb1fdcf5d702447
+          name: 'Patch - OS name'
+          type: TRAP
+          key: patch.os.name
+          history: 90d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'For example Windows Server 2022 Standard, Ubuntu 24.04.1 LTS, Rocky Linux 9.4 (Blue Onyx)'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: system
+        - uuid: 86ed0dc195d5444d9996df2acc79fb17
+          name: 'Patch - OS version / kernel'
+          type: TRAP
+          key: patch.os.version
+          history: 365d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: build with the update revision (UBR), for example 10.0.20348.2700 (21H2). Linux: running kernel (uname -r). Shows the real patch level.'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: system
+        - uuid: 153552099b624c24a0fd216f240a6c5b
+          name: 'Patch - Reboot allowed'
+          type: TRAP
+          key: patch.reboot.allowed
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'REBOOT from the patch settings of the host (patchbix.conf): 1 - the install job may reboot the host, 0 - it only reports the reboot.'
+          valuemap:
+            name: Enabled
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: 02cb1ac615de4dd7a08432bed243d414
+          name: 'Patch - Reboot reason'
+          type: TRAP
+          key: patch.reboot.reason
+          history: 90d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Why a reboot is required (Windows: Windows Update / Component Based Servicing; Linux: packages or kernel). "-" when no reboot is required.'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: reboot
+        - uuid: d3352b4de65d4938acb416c9ae8becbb
+          name: 'Patch - Reboot required'
+          type: TRAP
+          key: patch.reboot.required
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Windows: Windows Update or Component Based Servicing waits for a reboot.
+            Linux: /var/run/reboot-required (Debian / Ubuntu), needs-restarting -r (RHEL), or the running kernel is not the newest installed one.
+          valuemap:
+            name: Reboot
+          tags:
+            - tag: component
+              value: reboot
+          triggers:
+            - uuid: c1fcf97ecbdb4377aedd4efa4964d167
+              expression: 'min(/PatchBix - Patch management all OS/patch.reboot.required,{$PATCH.REBOOT.MAXAGE})=1'
+              name: 'Reboot pending for more than {$PATCH.REBOOT.MAXAGE}'
+              priority: WARNING
+              description: 'Installed updates are not active until the host is rebooted.'
+              tags:
+                - tag: scope
+                  value: security
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+            - uuid: ac78cd7e8b6f4d15b673fb379f9ed7c0
+              expression: 'last(/PatchBix - Patch management all OS/patch.reboot.required)<>0'
+              name: 'Reboot required to finish installing updates'
+              status: DISABLED
+              priority: INFO
+              tags:
+                - tag: scope
+                  value: notice
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: 2e02ba15feeb4746a97faa87d7c4b598
+          name: 'Patch - Reboot scheduled (maintenance window)'
+          type: TRAP
+          key: patch.reboot.scheduled
+          history: 90d
+          trends: '0'
+          allowed_hosts: '0.0.0.0/0,::/0'
+          units: unixtime
+          description: 'Linux: a reboot left for the maintenance window after the urgent package update (UPDATE_REBOOT false) - start of the window when the host reboots, 0 = none. A reboot in the meantime cancels it.'
+          valuemap:
+            name: 'Reboot scheduled'
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: c7500b9ded1242e3b26eca02d076e31d
+          name: 'Patch - Check script version'
+          type: TRAP
+          key: patch.script.version
+          history: 90d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Version of the check script on the host (patchbix-linux.sh / patchbix-windows.ps1), for example 26.10.10. Shows the hosts with an old script.'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: system
+        - uuid: f389c08f0dee49bf88123d245dac5397
+          name: 'Patch - Windows Update service startup type'
+          type: TRAP
+          key: patch.service.startup
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Windows only: startup type of the Windows Update service (wuauserv), same values as service.info[wuauserv,startup]:
+            0 - auto, 1 - auto (delayed), 2 - manual, 3 - disabled, 4 - unknown.
+            Manual is the default on Windows 10 / 11 / Server 2016+ (the service is started on demand). Not sent on Linux.
+          valuemap:
+            name: 'Service startup'
+          tags:
+            - tag: component
+              value: system
+          triggers:
+            - uuid: 210438bacf314ce0a7b782b1d57c037c
+              expression: 'last(/PatchBix - Patch management all OS/patch.service.startup)=3'
+              name: 'Windows Update service is disabled'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: security
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: 5522af96d6a14d0f8f27590e7ffa7fc3
+          name: 'Patch - Update source'
+          type: TRAP
+          key: patch.source
+          history: 30d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: Windows Update, or WSUS <server> when the policy UseWUServer is set. Linux: package manager (apt, dnf, yum).'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: system
+        - uuid: 9e1541a27a26400e892f8bbec2ba84ab
+          name: 'Patch - Update source availability'
+          type: TRAP
+          key: patch.source.available
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Windows: the update search succeeded (1) or not (0).
+            Linux: package lists could be refreshed from the repositories (1) or not (0). On apt sent only when the script runs as root.
+          valuemap:
+            name: Availability
+          tags:
+            - tag: component
+              value: system
+          triggers:
+            - uuid: ad7440cf6ec9465ab7d18c7d50e95431
+              expression: 'last(/PatchBix - Patch management all OS/patch.source.available)=0'
+              name: 'Update source is unavailable'
+              priority: WARNING
+              description: 'Windows: Windows Update search failed. Linux: a repository or proxy is unavailable.'
+              tags:
+                - tag: scope
+                  value: availability
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: d22fbcc254a74e6db02d72d09ba28e83
+          name: 'Patch - Urgent package update'
+          type: TRAP
+          key: patch.update.package
+          history: 90d
+          value_type: CHAR
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Linux: packages of the urgent update (UPDATE_PACKAGE, host macro {$PATCH.CONF.UPDATE_PACKAGE}), "-" = none.
+            The check script updates them at its next automatic run (cron every 15 min), once per value; the result
+            goes to "Patch - Last install result". Sent by the check and after a change of the host macros.
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: d41654b838c04e2c9bb0b3397e4c51c3
+          name: 'Patch - Reboot after urgent update'
+          type: TRAP
+          key: patch.update.reboot
+          history: 90d
+          trends: '0'
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Linux: reboot after the urgent package update when needed (UPDATE_REBOOT, host macro {$PATCH.CONF.UPDATE_REBOOT}): 2 - right away, 1 - in the maintenance window, after its updates (default), 0 - never (only reported).'
+          valuemap:
+            name: 'Reboot after urgent update'
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: 52eb3393cb8b4d59ae46840833e88fbc
+          name: 'Patch - Updates: Actionable'
+          type: CALCULATED
+          key: patch.updates.actionable
+          delay: 5m
+          history: 90d
+          params: last(//patch.updates.all)-last(//patch.updates.definition)-last(//patch.updates.drivers)
+          description: 'Pending updates without definition updates and drivers (PatchBix does not install drivers, definitions come several times a day). Used by the summary count of hosts with pending updates.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 1742139b4f344a5ca63d2c990a171c27
+          name: 'Patch - Updates: All'
+          type: TRAP
+          key: patch.updates.all
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'All pending updates (Windows: updates and drivers, not hidden; Linux: packages to upgrade / install).'
+          tags:
+            - tag: component
+              value: updates
+          triggers:
+            - uuid: cd1757599ab246c6b0ad060cc2a11f75
+              expression: 'last(/PatchBix - Patch management all OS/patch.updates.all)>0'
+              name: 'Updates are available'
+              opdata: 'Pending: {ITEM.LASTVALUE1}'
+              status: DISABLED
+              priority: INFO
+              tags:
+                - tag: scope
+                  value: notice
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: 4045701added435380f29a1816ab993d
+          name: 'Patch - Updates: Bugfix'
+          type: TRAP
+          key: patch.updates.bugfix
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: classification Updates. Linux (dnf / yum): packages with a bugfix advisory. Not sent on Debian / Ubuntu.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 16a51e761e874e09a5f7a690348329ec
+          name: 'Patch - Updates: Critical'
+          type: TRAP
+          key: patch.updates.critical
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Windows: classification Critical Updates.
+            Linux (dnf / yum): packages with a security advisory of severity Critical.
+            Debian: packages with a fixed CVE of urgency high (debsecan, security-tracker.debian.org).
+            Not sent on Ubuntu or on Debian without debsecan / access to the security tracker.
+          tags:
+            - tag: component
+              value: updates
+          triggers:
+            - uuid: 98db03a7811d43cd936f554688d5c7fd
+              expression: 'last(/PatchBix - Patch management all OS/patch.updates.critical)>0'
+              name: 'Critical updates are available'
+              opdata: 'Pending: {ITEM.LASTVALUE1}'
+              priority: HIGH
+              tags:
+                - tag: scope
+                  value: security
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: ec5a5cef74e44f819087582968254768
+          name: 'Patch - Updates: Definition'
+          type: TRAP
+          key: patch.updates.definition
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: classification Definition Updates (Microsoft Defender). Linux: 0.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 19003639efde4e5385975c329367ef8a
+          name: 'Patch - Updates: Drivers'
+          type: TRAP
+          key: patch.updates.drivers
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: driver updates. Linux: 0.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 3b0246679f6644b8b83c361b34c0e161
+          name: 'Patch - Updates: Enhancement'
+          type: TRAP
+          key: patch.updates.enhancement
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: classification Feature Packs. Linux (dnf / yum): packages with an enhancement advisory. Not sent on Debian / Ubuntu.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: aa17a69b3a67474fb20ffe449bd89b0c
+          name: 'Patch - Updates: Excluded'
+          type: TRAP
+          key: patch.updates.excluded
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Pending updates that match EXCLUDE (they are not installed). They are included in the other counts and marked "(excluded)" in the pending updates list.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 0fb10354ab234cf0920669b297e4641f
+          name: 'Patch - Updates: Held / hidden'
+          type: TRAP
+          key: patch.updates.held
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Updates excluded from patching. Windows: hidden updates. Linux: packages on hold (apt-mark hold) or version locked (dnf / yum versionlock).'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 398dbaf16e8f453d96e455c3f959de11
+          name: 'Patch - Updates: Kernel'
+          type: TRAP
+          key: patch.updates.kernel
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Linux: pending kernel packages (linux-image-*, kernel, kernel-core, ...). Windows: 0.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: e4db62012fa34d7780eb6c46c3ca1670
+          name: 'Patch - Pending updates list'
+          type: TRAP
+          key: patch.updates.list
+          history: 90d
+          value_type: TEXT
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Pending updates, one per line: [category] [severity] name version
+            Windows: [security] [Critical] KB5044281 - 2024-10 Cumulative Update for ...
+            Linux:   [security] [Important] openssl-libs 1:3.0.7-28.el9_4
+                     [security] openssl 3.0.13-0ubuntu3.3 -> 3.0.13-0ubuntu3.4
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: updates
+        - uuid: a7745bb29381434ab2ceef3fcbcfbc16
+          name: 'Patch - Updates: Security'
+          type: TRAP
+          key: patch.updates.security
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: |
+            Windows: classification Security Updates.
+            Linux: packages with a security advisory (dnf / yum updateinfo), on Debian / Ubuntu packages from a *-security suite.
+          tags:
+            - tag: component
+              value: updates
+          triggers:
+            - uuid: 6124493653dc437fae65c1de79c36373
+              expression: 'last(/PatchBix - Patch management all OS/patch.updates.security)>0'
+              name: 'Security updates are available'
+              opdata: 'Pending: {ITEM.LASTVALUE1}'
+              status: DISABLED
+              priority: WARNING
+              dependencies:
+                - name: 'Critical updates are available'
+                  expression: 'last(/PatchBix - Patch management all OS/patch.updates.critical)>0'
+              tags:
+                - tag: scope
+                  value: security
+                - tag: service
+                  value: patch-management
+                - tag: UpdatePlan
+                  value: '{INVENTORY.TYPE.FULL}'
+        - uuid: a10634db4a5f464e9919b2075afef47e
+          name: 'Patch - Updates: Service packs'
+          type: TRAP
+          key: patch.updates.servicepacks
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: classification Service Packs. Linux: 0.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 6bb52eecfc4a43d1b50a6320851d387e
+          name: 'Patch - Severity: Critical'
+          type: TRAP
+          key: patch.updates.severity.critical
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Pending updates with severity Critical. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
+          tags:
+            - tag: component
+              value: severity
+        - uuid: b7d309b5a2ea40a5a2e28837a5f0810c
+          name: 'Patch - Severity: Important'
+          type: TRAP
+          key: patch.updates.severity.important
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Pending updates with severity Important. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
+          tags:
+            - tag: component
+              value: severity
+        - uuid: 42e421a55d0d49e196d6b8dee70b986c
+          name: 'Patch - Severity: Low'
+          type: TRAP
+          key: patch.updates.severity.low
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Pending updates with severity Low. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
+          tags:
+            - tag: component
+              value: severity
+        - uuid: 356dfea92f964d43bf04b62e767e9fdd
+          name: 'Patch - Severity: Moderate'
+          type: TRAP
+          key: patch.updates.severity.moderate
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Pending updates with severity Moderate. Windows: MSRC severity. Linux (dnf / yum): severity of the security advisory. Debian (debsecan): urgency of the fixed CVEs - high = Critical, medium = Important, low = Low (Moderate 0). Not sent on Ubuntu or on Debian without debsecan.'
+          tags:
+            - tag: component
+              value: severity
+        - uuid: ec7fe0da76a045cb8f417497afe9679b
+          name: 'Patch - Updates: Update rollups'
+          type: TRAP
+          key: patch.updates.updaterollups
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: classification Update Rollups. Linux: 0.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 331da9e79f584213b4b5a31609185a30
+          name: 'Patch - Updates: Upgrades'
+          type: TRAP
+          key: patch.updates.upgrades
+          history: 90d
+          allowed_hosts: '0.0.0.0/0,::/0'
+          description: 'Windows: classification Upgrades (feature update to a new Windows version). Linux: 0.'
+          tags:
+            - tag: component
+              value: updates
+        - uuid: 3c322b45aa3f40058adb08151780e173
+          name: 'Patch - Run update check'
+          key: 'system.run[{$PATCH.CHECK.CMD},nowait]'
+          delay: '12h;3h/1-5,07:00-17:00'
+          history: 1d
+          trends: '0'
+          status: DISABLED
+          description: |
+            Starts the check script through the Zabbix agent (needs AllowKey=system.run[*] in the agent config).
+            Disabled by default: running the script from cron (as root) / Task Scheduler (as SYSTEM) is recommended.
+            The command is in the macro {$PATCH.CHECK.CMD} (default: Linux). On Windows hosts set the host macro to:
+            start /low powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\patchbix-windows.ps1"
+          tags:
+            - tag: component
+              value: check
+      macros:
+        - macro: '{$PATCH.CHECK.CMD}'
+          value: /usr/local/bin/patchbix-linux.sh
+          description: 'Command of the item "Patch - Run update check". Override on Windows hosts (see the item description).'
+        - macro: '{$PATCH.CONF.AUTO_UPDATE}'
+          description: 'Host setting from Zabbix (overrides AUTO_UPDATE of patchbix.conf): true = the check script installs the update types of the maintenance window in it, false = check only. Empty = patchbix.conf (not set there = false).'
+        - macro: '{$PATCH.CONF.EXCLUDE}'
+          description: 'Host setting from Zabbix (overrides EXCLUDE of patchbix.conf): updates that are not installed, comma separated (Linux: packages, Windows: KB or a part of the title), % = wildcard (kernel%), none = nothing excluded. Empty = patchbix.conf.'
+        - macro: '{$PATCH.CONF.REBOOT}'
+          description: 'Host setting from Zabbix (overrides REBOOT of patchbix.conf): true = reboot after updates when needed, false = only report it. Empty = patchbix.conf.'
+        - macro: '{$PATCH.CONF.UPDATE_PACKAGE}'
+          description: 'Linux: urgent update of these packages, comma separated, % = wildcard (for example openssl, libssl%). The check script updates them at its next automatic run (cron every 15 min) - right away, also outside the maintenance window and without AUTO_UPDATE, once per value; the result goes to the install items (Patch - Last install result). To run the same value again, clear the macro, wait 15 min and set it again. Reboot: {$PATCH.CONF.UPDATE_REBOOT}. Empty = nothing.'
+        - macro: '{$PATCH.CONF.UPDATE_REBOOT}'
+          description: 'Linux: reboot after {$PATCH.CONF.UPDATE_PACKAGE} when needed: true = right away, false = in the maintenance window where the updates run, after them ({$PATCH.CONF.WINDOW}; without AUTO_UPDATE when the window opens, without a window only reported), never = only report it. Empty = false.'
+        - macro: '{$PATCH.CONF.WINDOW}'
+          description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of patchbix.conf): when and which updates the check script installs - <types> <day> <HH:MM>-<HH:MM>, comma separated; types all = all updates, crit, sec, kernel (Linux), def (Windows), joined with + (* is not allowed by the agent); day 1-7 = Mon-Sun or Mon..Sun (1-7 = every day), 1-5 or Mon-Fri, 2.3 = 2nd Wednesday, several days joined with + (Tue+Thu = Tuesday and Thursday). Examples: all Wed 03:00-05:00, all Tue+Thu 03:00-05:00, crit+sec 1-7 02:00-03:00. A * in any of the macros makes the agent refuse all of them (Character "*" is not allowed). none = no window. The automatic updates need {$PATCH.CONF.AUTO_UPDATE} = true (or AUTO_UPDATE="true" in patchbix.conf). Empty = patchbix.conf.'
+        - macro: '{$PATCH.LASTUPDATE.MAXAGE}'
+          value: 30d
+          description: 'Alert when no updates were installed for this time and updates are pending'
+        - macro: '{$PATCH.NODATA}'
+          value: 2d
+          description: 'Alert when the check script sends no data for this time'
+        - macro: '{$PATCH.REBOOT.MAXAGE}'
+          value: 7d
+          description: 'Alert when a reboot is pending for this time'
+      dashboards:
+        - uuid: 9a18e36191fa474480805734737206a8
+          name: 'PatchBix - Patch management'
+          display_period: '60'
+          pages:
+            - name: Overview
+              widgets:
+                - type: item
+                  name: 'Pending updates'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.all
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 388E3C
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: F57C00
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                - type: item
+                  name: 'Automatic updates'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.autoupdate
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '14'
+                - type: item
+                  name: 'Auto update'
+                  'y': '6'
+                  width: '24'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.autoupdate.config
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 5E35B1
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '1'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Config (✎ Zabbix macro, ▤ patchbix.conf)'
+                  'y': '9'
+                  width: '48'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.config.override
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '10'
+                - type: item
+                  name: 'Urgent package update'
+                  'y': '12'
+                  width: '30'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.update.package
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: itemhistory
+                  name: 'Pending updates'
+                  'y': '15'
+                  width: '36'
+                  height: '9'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.list
+                    - type: INTEGER
+                      name: columns.0.max_length
+                      value: '500'
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: 'Pending updates'
+                    - type: STRING
+                      name: reference
+                      value: PMPUL
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '1'
+                - type: svggraph
+                  name: 'Pending updates (30 days)'
+                  'y': '24'
+                  width: '36'
+                  height: '5'
+                  fields:
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: 1E88E5
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: FB8C00
+                    - type: STRING
+                      name: ds.0.color.2
+                      value: E53935
+                    - type: STRING
+                      name: ds.0.color.3
+                      value: 8E24AA
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.all
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.security
+                    - type: ITEM
+                      name: ds.0.itemids.2
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.critical
+                    - type: ITEM
+                      name: ds.0.itemids.3
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.kernel
+                    - type: INTEGER
+                      name: ds.0.missingdatafunc
+                      value: '3'
+                    - type: INTEGER
+                      name: ds.0.type
+                      value: '2'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '4'
+                    - type: STRING
+                      name: reference
+                      value: PMPUG
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-30d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: problems
+                  name: 'Patch management problems'
+                  'y': '29'
+                  width: '72'
+                  height: '5'
+                  fields:
+                    - type: STRING
+                      name: reference
+                      value: PMPRB
+                    - type: INTEGER
+                      name: show_lines
+                      value: '10'
+                    - type: INTEGER
+                      name: show_tags
+                      value: '3'
+                    - type: INTEGER
+                      name: tags.0.operator
+                      value: '1'
+                    - type: STRING
+                      name: tags.0.tag
+                      value: service
+                    - type: STRING
+                      name: tags.0.value
+                      value: patch-management
+                - type: item
+                  name: Security
+                  x: '9'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.security
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 388E3C
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: F57C00
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                - type: item
+                  name: 'Automatic updates detail'
+                  x: '12'
+                  'y': '3'
+                  width: '36'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.autoupdate.detail
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '10'
+                - type: item
+                  name: Critical
+                  x: '18'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.critical
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 388E3C
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: C62828
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                - type: item
+                  name: 'Next maintenance window'
+                  x: '24'
+                  'y': '6'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.maintenance.next
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: Kernel
+                  x: '27'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.kernel
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: F9A825
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '1'
+                - type: item
+                  name: 'Reboot after urgent update'
+                  x: '30'
+                  'y': '12'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.update.reboot
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Held / hidden'
+                  x: '36'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.held
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Reboot allowed'
+                  x: '36'
+                  'y': '6'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.reboot.allowed
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: itemhistory
+                  name: 'Update history (recent installs)'
+                  x: '36'
+                  'y': '15'
+                  width: '36'
+                  height: '9'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.history
+                    - type: INTEGER
+                      name: columns.0.max_length
+                      value: '500'
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: 'Update history'
+                    - type: STRING
+                      name: reference
+                      value: PMUHL
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '1'
+                - type: svggraph
+                  name: 'Reboot required / time since reboot (30 days)'
+                  x: '36'
+                  'y': '24'
+                  width: '36'
+                  height: '5'
+                  fields:
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: FBC02D
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: INTEGER
+                      name: ds.0.fill
+                      value: '5'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.reboot.required
+                    - type: INTEGER
+                      name: ds.0.missingdatafunc
+                      value: '3'
+                    - type: INTEGER
+                      name: ds.0.type
+                      value: '2'
+                    - type: INTEGER
+                      name: ds.1.approximation
+                      value: '4'
+                    - type: INTEGER
+                      name: ds.1.axisy
+                      value: '1'
+                    - type: STRING
+                      name: ds.1.color.0
+                      value: 00ACC1
+                    - type: INTEGER
+                      name: ds.1.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.1.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.lastboot.age
+                    - type: INTEGER
+                      name: ds.1.missingdatafunc
+                      value: '3'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '2'
+                    - type: STRING
+                      name: reference
+                      value: PMRBG
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-30d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: item
+                  name: 'Reboot scheduled (maintenance window)'
+                  x: '42'
+                  'y': '12'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.reboot.scheduled
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: FFA000
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '1'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Reboot required'
+                  x: '45'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.reboot.required
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 388E3C
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: F9A825
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Last check'
+                  x: '48'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.check.age
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: C62828
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '172800'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Excluded (config)'
+                  x: '48'
+                  'y': '6'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.exclude
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Host macros - agent result'
+                  x: '48'
+                  'y': '9'
+                  width: '24'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}","{$PATCH.CONF.UPDATE_PACKAGE}","{$PATCH.CONF.UPDATE_REBOOT}"]'
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Last update installed'
+                  x: '54'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.lastupdate.age
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: F57C00
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '2592000'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: C62828
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '3888000'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Last install result'
+                  x: '54'
+                  'y': '12'
+                  width: '18'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.result
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '10'
+                - type: item
+                  name: 'Check result'
+                  x: '60'
+                  'y': '3'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.check.result
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Pending excluded'
+                  x: '60'
+                  'y': '6'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.excluded
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: F9A825
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '1'
+                - type: item
+                  name: Uptime
+                  x: '63'
+                  width: '9'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.lastboot.age
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: F57C00
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '7776000'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+            - name: 'Categories and severity'
+              widgets:
+                - type: piechart
+                  name: 'Pending updates by category'
+                  width: '36'
+                  height: '8'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: INTEGER
+                      name: draw_type
+                      value: '1'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: E64A19
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: C62828
+                    - type: STRING
+                      name: ds.0.color.2
+                      value: 1E88E5
+                    - type: STRING
+                      name: ds.0.color.3
+                      value: 43A047
+                    - type: STRING
+                      name: ds.0.color.4
+                      value: 00ACC1
+                    - type: STRING
+                      name: ds.0.color.5
+                      value: 5E35B1
+                    - type: STRING
+                      name: ds.0.color.6
+                      value: 8E24AA
+                    - type: STRING
+                      name: ds.0.color.7
+                      value: 6D4C41
+                    - type: STRING
+                      name: ds.0.color.8
+                      value: FDD835
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.security
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.critical
+                    - type: ITEM
+                      name: ds.0.itemids.2
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.bugfix
+                    - type: ITEM
+                      name: ds.0.itemids.3
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.enhancement
+                    - type: ITEM
+                      name: ds.0.itemids.4
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.definition
+                    - type: ITEM
+                      name: ds.0.itemids.5
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.servicepacks
+                    - type: ITEM
+                      name: ds.0.itemids.6
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.updaterollups
+                    - type: ITEM
+                      name: ds.0.itemids.7
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.drivers
+                    - type: ITEM
+                      name: ds.0.itemids.8
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.upgrades
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '9'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-1d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                    - type: INTEGER
+                      name: total_show
+                      value: '1'
+                    - type: INTEGER
+                      name: width
+                      value: '30'
+                - type: svggraph
+                  name: 'Pending updates by category (90 days)'
+                  'y': '8'
+                  width: '72'
+                  height: '8'
+                  fields:
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: E64A19
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: C62828
+                    - type: STRING
+                      name: ds.0.color.2
+                      value: 1E88E5
+                    - type: STRING
+                      name: ds.0.color.3
+                      value: 43A047
+                    - type: STRING
+                      name: ds.0.color.4
+                      value: 00ACC1
+                    - type: STRING
+                      name: ds.0.color.5
+                      value: 5E35B1
+                    - type: STRING
+                      name: ds.0.color.6
+                      value: 8E24AA
+                    - type: STRING
+                      name: ds.0.color.7
+                      value: 6D4C41
+                    - type: STRING
+                      name: ds.0.color.8
+                      value: FDD835
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: INTEGER
+                      name: ds.0.fill
+                      value: '5'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.security
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.critical
+                    - type: ITEM
+                      name: ds.0.itemids.2
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.bugfix
+                    - type: ITEM
+                      name: ds.0.itemids.3
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.enhancement
+                    - type: ITEM
+                      name: ds.0.itemids.4
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.definition
+                    - type: ITEM
+                      name: ds.0.itemids.5
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.servicepacks
+                    - type: ITEM
+                      name: ds.0.itemids.6
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.updaterollups
+                    - type: ITEM
+                      name: ds.0.itemids.7
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.drivers
+                    - type: ITEM
+                      name: ds.0.itemids.8
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.upgrades
+                    - type: INTEGER
+                      name: ds.0.missingdatafunc
+                      value: '3'
+                    - type: INTEGER
+                      name: ds.0.stacked
+                      value: '1'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '9'
+                    - type: STRING
+                      name: reference
+                      value: PMCAG
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-90d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: svggraph
+                  name: 'Pending updates by severity (90 days)'
+                  'y': '16'
+                  width: '72'
+                  height: '6'
+                  fields:
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: C62828
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: F57C00
+                    - type: STRING
+                      name: ds.0.color.2
+                      value: FBC02D
+                    - type: STRING
+                      name: ds.0.color.3
+                      value: 7CB342
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: INTEGER
+                      name: ds.0.fill
+                      value: '5'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.critical
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.important
+                    - type: ITEM
+                      name: ds.0.itemids.2
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.moderate
+                    - type: ITEM
+                      name: ds.0.itemids.3
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.low
+                    - type: INTEGER
+                      name: ds.0.missingdatafunc
+                      value: '3'
+                    - type: INTEGER
+                      name: ds.0.stacked
+                      value: '1'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '4'
+                    - type: STRING
+                      name: reference
+                      value: PMSEG
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-90d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: piechart
+                  name: 'Pending updates by severity'
+                  x: '36'
+                  width: '36'
+                  height: '8'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: INTEGER
+                      name: draw_type
+                      value: '1'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: C62828
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: F57C00
+                    - type: STRING
+                      name: ds.0.color.2
+                      value: FBC02D
+                    - type: STRING
+                      name: ds.0.color.3
+                      value: 7CB342
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.critical
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.important
+                    - type: ITEM
+                      name: ds.0.itemids.2
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.moderate
+                    - type: ITEM
+                      name: ds.0.itemids.3
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.updates.severity.low
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '4'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-1d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                    - type: INTEGER
+                      name: total_show
+                      value: '1'
+                    - type: INTEGER
+                      name: width
+                      value: '30'
+            - name: 'Installs and history'
+              widgets:
+                - type: item
+                  name: 'Last install run'
+                  width: '10'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.timestamp
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-90d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: svggraph
+                  name: 'Installed / failed updates per run (1 year)'
+                  'y': '3'
+                  width: '36'
+                  height: '6'
+                  fields:
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: 43A047
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: E53935
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.count
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.failed
+                    - type: INTEGER
+                      name: ds.0.missingdatafunc
+                      value: '3'
+                    - type: INTEGER
+                      name: ds.0.type
+                      value: '3'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '2'
+                    - type: STRING
+                      name: reference
+                      value: PMING
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-1y
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: itemhistory
+                  name: 'Install runs'
+                  'y': '9'
+                  width: '36'
+                  height: '8'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.result
+                    - type: INTEGER
+                      name: columns.0.max_length
+                      value: '500'
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: Result
+                    - type: STRING
+                      name: reference
+                      value: PMIRH
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '20'
+                - type: itemhistory
+                  name: 'OS version / kernel history'
+                  'y': '17'
+                  width: '36'
+                  height: '7'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.os.version
+                    - type: INTEGER
+                      name: columns.0.max_length
+                      value: '500'
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: 'OS version / kernel'
+                    - type: STRING
+                      name: reference
+                      value: PMOVH
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '20'
+                - type: item
+                  name: 'Install status'
+                  x: '10'
+                  width: '10'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.status
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 388E3C
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: C62828
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-90d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Installed (last run)'
+                  x: '20'
+                  width: '10'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-90d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: item
+                  name: 'Failed (last run)'
+                  x: '30'
+                  width: '10'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: aggregate_function
+                      value: '7'
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.failed
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 388E3C
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: C62828
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-90d
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: svggraph
+                  name: 'Time since last update / reboot (1 year)'
+                  x: '36'
+                  'y': '3'
+                  width: '36'
+                  height: '6'
+                  fields:
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: FB8C00
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: 00ACC1
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.lastupdate.age
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.lastboot.age
+                    - type: INTEGER
+                      name: ds.0.missingdatafunc
+                      value: '3'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
+                    - type: INTEGER
+                      name: legend_lines
+                      value: '2'
+                    - type: STRING
+                      name: reference
+                      value: PMAGG
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
+                    - type: STRING
+                      name: time_period.from
+                      value: now-1y
+                    - type: STRING
+                      name: time_period.to
+                      value: now
+                - type: itemhistory
+                  name: 'Installed updates per run'
+                  x: '36'
+                  'y': '9'
+                  width: '36'
+                  height: '8'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.install.list
+                    - type: INTEGER
+                      name: columns.0.max_length
+                      value: '500'
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: 'Installed updates'
+                    - type: STRING
+                      name: reference
+                      value: PMILH
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '10'
+                - type: itemhistory
+                  name: 'Check results'
+                  x: '36'
+                  'y': '17'
+                  width: '36'
+                  height: '7'
+                  fields:
+                    - type: ITEM
+                      name: columns.0.itemid
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.check.result
+                    - type: INTEGER
+                      name: columns.0.max_length
+                      value: '500'
+                    - type: INTEGER
+                      name: columns.0.monospace_font
+                      value: '1'
+                    - type: STRING
+                      name: columns.0.name
+                      value: Result
+                    - type: ITEM
+                      name: columns.1.itemid
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.check.duration
+                    - type: STRING
+                      name: columns.1.name
+                      value: Duration
+                    - type: STRING
+                      name: reference
+                      value: PMCRH
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
+                    - type: INTEGER
+                      name: show_lines
+                      value: '20'
+                - type: item
+                  name: 'Last update installed'
+                  x: '40'
+                  width: '10'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.lastupdate.timestamp
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Last reboot'
+                  x: '50'
+                  width: '10'
+                  height: '3'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.lastboot
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Check script version'
+                  x: '60'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'PatchBix - Patch management all OS'
+                        key: patch.script.version
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+      valuemaps:
+        - uuid: 22255060312d4e1cb6b763f10fedbb5e
+          name: 'Automatic updates'
+          mappings:
+            - value: '0'
+              newvalue: Disabled
+            - value: '1'
+              newvalue: 'OS security'
+            - value: '2'
+              newvalue: 'OS all'
+            - value: '3'
+              newvalue: 'Patch management'
+            - value: '4'
+              newvalue: 'OS + Patch management'
+            - value: '5'
+              newvalue: 'Azure Update Manager'
+            - value: '6'
+              newvalue: 'Azure + Patch management'
+            - value: '7'
+              newvalue: SCCM
+            - value: '8'
+              newvalue: 'SCCM + Patch management'
+        - uuid: edf4ad98a0354869a98a9ce9b7b133a9
+          name: Availability
+          mappings:
+            - value: '0'
+              newvalue: DOWN
+            - value: '1'
+              newvalue: UP
+        - uuid: 5ceeb593f99549b9914a2d633f4383d9
+          name: Enabled
+          mappings:
+            - value: '0'
+              newvalue: Disabled
+            - value: '1'
+              newvalue: Enabled
+        - uuid: fd8d715885f640e79cdc607aefbe021a
+          name: 'Install status'
+          mappings:
+            - value: '0'
+              newvalue: OK
+            - value: '1'
+              newvalue: FAILED
+        - uuid: 33f39a8113a24c0694ed3da95b3b2bfa
+          name: Reboot
+          mappings:
+            - value: '0'
+              newvalue: 'NO'
+            - value: '1'
+              newvalue: NEED
+        - uuid: 7112c6433457482b8caee0c72963b482
+          name: 'Reboot after urgent update'
+          mappings:
+            - value: '0'
+              newvalue: Never
+            - value: '1'
+              newvalue: 'In the maintenance window'
+            - value: '2'
+              newvalue: 'Right away'
+        - uuid: 8de44783cd7c4fa1976ed8e9a98cdfea
+          name: 'Reboot scheduled'
+          mappings:
+            - value: '0'
+              newvalue: 'No'
+        - uuid: 2bb341da8cdc41e895f3dd4864c0914c
+          name: 'Service startup'
+          mappings:
+            - value: '0'
+              newvalue: Automatic
+            - value: '1'
+              newvalue: 'Automatic (delayed)'
+            - value: '2'
+              newvalue: Manual
+            - value: '3'
+              newvalue: Disabled
+            - value: '4'
+              newvalue: Unknown
+  triggers:
+    - uuid: 76c5fd446a684d5598c1de96640e5a58
+      expression: 'last(/PatchBix - Patch management all OS/patch.lastupdate.age)>{$PATCH.LASTUPDATE.MAXAGE} and (last(/PatchBix - Patch management all OS/patch.updates.security)>0 or last(/PatchBix - Patch management all OS/patch.updates.critical)>0)'
+      name: 'No updates installed for more than {$PATCH.LASTUPDATE.MAXAGE}'
+      opdata: 'Last update: {ITEM.LASTVALUE1} ago, pending security: {ITEM.LASTVALUE2}, critical: {ITEM.LASTVALUE3}'
+      priority: WARNING
+      tags:
+        - tag: scope
+          value: security
+        - tag: service
+          value: patch-management
+        - tag: UpdatePlan
+          value: '{INVENTORY.TYPE.FULL}'
